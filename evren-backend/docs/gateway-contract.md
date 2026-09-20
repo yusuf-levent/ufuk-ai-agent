@@ -61,8 +61,11 @@ against this document.
 
 ### POST /v1/chat/completions (non-streaming)
 
-Request (unknown fields are dropped via an allowlist; `max_tokens` is clamped to
-the tier/plan cap):
+Request (unknown fields are dropped via an allowlist; `max_tokens` is clamped
+to the effective ceiling = `min(tier.max_output_tokens, plan.
+max_output_tokens_per_request)` — seeded ceilings: `fast` 8192, `balanced`
+8192, `strong` 16384, with plan caps never below the tier ceiling; when the
+client omits `max_tokens` the full effective ceiling is used):
 
 ```json
 {
@@ -71,7 +74,7 @@ the tier/plan cap):
   "temperature": 0.2,
   "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
   "tool_choice": "auto",
-  "max_tokens": 1024
+  "max_tokens": 8192
 }
 ```
 
@@ -132,7 +135,7 @@ usage is recorded (estimated from streamed content INCLUDING reasoning text).
         "display_name": "Fast",
         "upstream_provider": "evren-llmapi",
         "upstream_model": "deepseek-v4-flash",
-        "max_output_tokens": 4096,
+        "max_output_tokens": 8192,
         "context_window": 128000
       }
     }
@@ -214,4 +217,5 @@ derived seconds, else 30 — and surfaces `error.resets_at` in the body.
   `usage.evren` stripped from client responses, 429 `resets_at` parsing
   (body hint / `X-RateLimit-Reset`), RPM 429 carries `error.resets_at`,
   disconnect estimates include reasoning text, admin duplicate plan/tier
-  returns 409.
+  returns 409, per-tier `max_tokens` ceilings raised for reasoning models
+  (fast/balanced 8192, strong 16384; plan caps raised to match).

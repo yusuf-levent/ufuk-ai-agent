@@ -32,7 +32,7 @@ DEFAULT_TIERS = {
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.5"),
         "output_credits_per_1k_tokens": Decimal("1.0"),
-        "max_output_tokens": 4096,
+        "max_output_tokens": 8192,
         "context_window": 128000,
     },
     "balanced": {
@@ -60,14 +60,14 @@ ALL_TIERS = ["fast", "balanced", "strong"]
 DEFAULT_PLANS = {
     "free": {
         "monthly_credit_limit": Decimal("100"),
-        "max_output_tokens_per_request": 4096,
+        "max_output_tokens_per_request": 8192,
         "requests_per_minute": 10,
         "allowed_tier_aliases": ["fast"],
         "is_default": True,
     },
     "pro": {
         "monthly_credit_limit": Decimal("5000"),
-        "max_output_tokens_per_request": 8192,
+        "max_output_tokens_per_request": 16384,
         "requests_per_minute": 60,
         "allowed_tier_aliases": ALL_TIERS,
         "is_default": False,

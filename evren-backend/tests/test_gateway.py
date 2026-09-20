@@ -277,6 +277,64 @@ async def test_max_tokens_clamped(client: AsyncClient, install_upstream, gateway
     assert request_json(captured[1])["max_tokens"] == 16
 
 
+async def test_max_tokens_clamped_by_plan_when_below_tier_ceiling(
+    client: AsyncClient, app: FastAPI, install_upstream
+) -> None:
+    """The effective ceiling is min(tier.max_output_tokens, plan cap):
+    when the plan cap is the smaller value it must win."""
+    await create_plan_direct(
+        app,
+        name="free",
+        max_output_tokens_per_request=512,
+        allowed_tier_aliases=["fast"],
+        is_default=True,
+    )
+    await create_tier_direct(app, max_output_tokens=8192)
+    headers = await register_and_login(client, "planclamp@example.com")
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=completion_response())
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL,
+        json={"model": "fast", "messages": MESSAGES, "max_tokens": 999999},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert request_json(captured[0])["max_tokens"] == 512
+
+
+async def test_max_tokens_tier_ceiling_default_when_unset(
+    client: AsyncClient, app: FastAPI, install_upstream
+) -> None:
+    """No client max_tokens: the full tier ceiling (not a smaller plan cap)
+    is reserved and sent upstream."""
+    await create_plan_direct(
+        app,
+        name="free",
+        max_output_tokens_per_request=16384,
+        allowed_tier_aliases=["fast"],
+        is_default=True,
+    )
+    await create_tier_direct(app, max_output_tokens=8192)
+    headers = await register_and_login(client, "tierclamp@example.com")
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=completion_response())
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL, json={"model": "fast", "messages": MESSAGES}, headers=headers
+    )
+    assert response.status_code == 200
+    assert request_json(captured[0])["max_tokens"] == 8192
+
+
 async def test_quota_exceeded_never_calls_upstream(
     client: AsyncClient, app: FastAPI, install_upstream
 ) -> None:
