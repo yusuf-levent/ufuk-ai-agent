@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -40,6 +41,23 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["gateway"])
 
 LEDGER_TTL_GRACE_SECONDS = 5 * 24 * 3600
+
+# Upstream-private usage sub-objects (platform billing/routing internals)
+# that must never be forwarded to gateway clients.
+PROTECTED_USAGE_FIELDS = ("evren",)
+
+
+def _strip_protected_usage(obj: dict[str, Any]) -> bool:
+    """Remove upstream-private fields from a usage object. True if changed."""
+    usage = obj.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    changed = False
+    for field in PROTECTED_USAGE_FIELDS:
+        if field in usage:
+            del usage[field]
+            changed = True
+    return changed
 
 
 class SseUsageScanner:
@@ -79,6 +97,12 @@ class SseUsageScanner:
             content = delta.get("content")
             if isinstance(content, str):
                 self._content_chars += len(content)
+            # Reasoning models emit reasoning text that is billed as
+            # completion tokens; count it for disconnect estimates.
+            for reasoning_key in ("reasoning", "reasoning_content"):
+                reasoning = delta.get(reasoning_key)
+                if isinstance(reasoning, str):
+                    self._content_chars += len(reasoning)
             for tool_call in delta.get("tool_calls") or []:
                 if isinstance(tool_call, dict) and isinstance(tool_call.get("function"), dict):
                     arguments = tool_call["function"].get("arguments")
@@ -90,7 +114,8 @@ class SseUsageScanner:
 
 
 def _transform_sse_line(line: bytes, alias: str) -> bytes:
-    """Rewrite the model field of a JSON data line to the tier alias."""
+    """Rewrite the model field of a JSON data line to the tier alias and strip
+    upstream-private usage fields."""
     if not line.startswith(b"data:"):
         return line
     payload = line[5:].strip()
@@ -100,9 +125,14 @@ def _transform_sse_line(line: bytes, alias: str) -> bytes:
         obj = json.loads(payload)
     except ValueError:
         return line
-    if not isinstance(obj, dict) or not isinstance(obj.get("model"), str):
+    if not isinstance(obj, dict):
         return line
-    obj["model"] = alias
+    changed = _strip_protected_usage(obj)
+    if isinstance(obj.get("model"), str):
+        obj["model"] = alias
+        changed = True
+    if not changed:
+        return line
     return b"data: " + json.dumps(obj, ensure_ascii=False).encode("utf-8")
 
 
@@ -115,6 +145,10 @@ def _extract_completion_text(data: dict[str, Any]) -> str:
         content = message.get("content")
         if isinstance(content, str):
             parts.append(content)
+        for reasoning_key in ("reasoning", "reasoning_content"):
+            reasoning = message.get(reasoning_key)
+            if isinstance(reasoning, str):
+                parts.append(reasoning)
         for tool_call in message.get("tool_calls") or []:
             if isinstance(tool_call, dict) and isinstance(tool_call.get("function"), dict):
                 arguments = tool_call["function"].get("arguments")
@@ -272,12 +306,14 @@ async def chat_completions(
         window_seconds=60,
     )
     if retry_after is not None:
+        resets_at = utcnow() + timedelta(seconds=retry_after)
         raise ApiError(
             status_code=429,
             message="Requests-per-minute limit exceeded",
             type="rate_limit_error",
             code="rate_limited",
             headers={"Retry-After": str(retry_after)},
+            extra={"resets_at": resets_at.isoformat().replace("+00:00", "Z")},
         )
 
     breaker = request.app.state.circuit_breaker
@@ -382,6 +418,8 @@ async def chat_completions(
         raise error
 
     data = response.json()
+    if isinstance(data, dict):
+        _strip_protected_usage(data)
     usage = data.get("usage") if isinstance(data, dict) else None
     prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
     completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None

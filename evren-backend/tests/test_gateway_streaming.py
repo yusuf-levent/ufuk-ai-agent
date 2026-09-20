@@ -308,6 +308,86 @@ async def test_client_disconnect_records_partial_usage(
     assert completion_tokens == 1  # only "Hel" (3 chars) was streamed
 
 
+async def test_stream_disconnect_reasoning_counted_in_estimate(
+    app: FastAPI, install_upstream, stream_user
+) -> None:
+    """Reasoning-model streams bill reasoning tokens; disconnect estimates must
+    count delta.reasoning text, not just visible content."""
+    from app.routers.gateway import SseUsageScanner, stream_sse_events
+
+    events = [
+        chunk_event(delta={"role": "assistant", "reasoning": "abcdefghijklmnop"}),
+        chunk_event(delta={"reasoning": "qrstuvwx"}),
+        chunk_event(delta={"content": "Hi"}),
+    ]
+    await install_upstream(
+        lambda request: httpx.Response(
+            200, content=sse_body(events), headers={"content-type": "text/event-stream"}
+        )
+    )
+    upstream_client = app.state.upstream
+    response = await upstream_client.open_stream(
+        {"model": "dev-model-fast", "messages": MESSAGES, "stream": True}
+    )
+
+    finalize_calls: list[tuple[int, int, bool]] = []
+
+    async def finalize(prompt_tokens: int, completion_tokens: int, estimated: bool) -> None:
+        finalize_calls.append((prompt_tokens, completion_tokens, estimated))
+
+    scanner = SseUsageScanner()
+    generator = stream_sse_events(
+        response, tier_alias="fast", scanner=scanner, est_prompt=25, finalize=finalize
+    )
+    # 3 data lines + 2 blank separator lines
+    for _ in range(5):
+        await generator.__anext__()
+    await generator.aclose()
+
+    # 24 reasoning chars + 2 content chars = 26 -> (26+3)//4 = 7 tokens
+    assert finalize_calls[0][1] == 7
+
+
+async def test_streaming_usage_private_fields_stripped(
+    client: AsyncClient, install_upstream, stream_user
+) -> None:
+    headers, _ = stream_user
+    events = [
+        chunk_event(delta={"role": "assistant", "content": "Hi"}),
+        chunk_event(finish_reason="stop"),
+        chunk_event(
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 2,
+                "total_tokens": 12,
+                "evren": {
+                    "credits_held_cr": "0.0000",
+                    "credits_remaining_cr": "999.9476",
+                    "routed_model": "vendor/model-fp8",
+                },
+            }
+        ),
+    ]
+    await install_upstream(
+        lambda request: httpx.Response(
+            200, content=sse_body(events), headers={"content-type": "text/event-stream"}
+        )
+    )
+
+    async with client.stream(
+        "POST",
+        CHAT_URL,
+        json={"model": "fast", "messages": MESSAGES, "stream": True},
+        headers=headers,
+    ) as response:
+        text = (await response.aread()).decode()
+
+    parsed = [e for e in parse_sse(text) if e != "[DONE]"]
+    usage_event = parsed[-1]
+    assert "evren" not in usage_event["usage"]
+    assert usage_event["usage"]["prompt_tokens"] == 10
+
+
 async def test_stream_generator_full_consumption(
     app: FastAPI, install_upstream, stream_user
 ) -> None:

@@ -323,6 +323,30 @@ async def test_rpm_limit(client: AsyncClient, app: FastAPI, install_upstream) ->
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "rate_limited"
     assert int(second.headers["retry-after"]) >= 1
+    resets_at = second.json()["error"].get("resets_at")
+    assert isinstance(resets_at, str) and resets_at.endswith("Z")
+
+
+async def test_upstream_usage_private_fields_stripped(
+    client: AsyncClient, install_upstream, gateway_user
+) -> None:
+    headers, _ = gateway_user
+    body = completion_response()
+    body["usage"]["evren"] = {
+        "credits_held_cr": "0.0000",
+        "credits_remaining_cr": "999.9476",
+        "routed_model": "vendor/model-fp8",
+    }
+    await install_upstream(lambda request: httpx.Response(200, json=body))
+
+    response = await client.post(
+        CHAT_URL, json={"model": "fast", "messages": MESSAGES}, headers=headers
+    )
+    assert response.status_code == 200
+    usage = response.json()["usage"]
+    assert "evren" not in usage
+    assert usage["prompt_tokens"] == 10
+    assert usage["completion_tokens"] == 5
 
 
 async def test_model_not_allowed(client: AsyncClient, install_upstream, gateway_user) -> None:
