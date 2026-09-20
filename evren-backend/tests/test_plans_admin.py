@@ -174,6 +174,22 @@ async def test_admin_tier_crud_and_cache_invalidation(client, app) -> None:
     assert view.upstream_model_id == "dev-model-fast-v2"
 
 
+async def test_admin_duplicate_plan_name_returns_409(client, app) -> None:
+    headers = await admin_headers(app, client)
+    await create_plan_direct(app)
+
+    response = await client.post("/admin/plans", json=PLAN_BODY, headers=headers)
+    assert response.status_code == 409, response.text
+
+
+async def test_admin_duplicate_tier_alias_returns_409(client, app) -> None:
+    headers = await admin_headers(app, client)
+    await create_tier_direct(app)
+
+    response = await client.post("/admin/tiers", json=TIER_BODY, headers=headers)
+    assert response.status_code == 409, response.text
+
+
 async def test_admin_assign_plan(client, app) -> None:
     headers = await admin_headers(app, client)
     free = await create_plan_direct(app)

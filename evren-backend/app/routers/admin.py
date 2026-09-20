@@ -5,6 +5,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import require_admin
@@ -53,13 +54,19 @@ async def _get_plan_or_404(request: Request, plan_id: uuid.UUID) -> Plan:
 @router.post("/plans", response_model=PlanResponse, status_code=status.HTTP_201_CREATED)
 async def create_plan(body: PlanCreate, request: Request) -> PlanResponse:
     database = request.app.state.database
-    async with database.session() as session:
-        if body.is_default:
-            await _clear_default_flag(session)
-        plan = Plan(**body.model_dump())
-        session.add(plan)
-        await session.commit()
-        await session.refresh(plan)
+    try:
+        async with database.session() as session:
+            if body.is_default:
+                await _clear_default_flag(session)
+            plan = Plan(**body.model_dump())
+            session.add(plan)
+            await session.commit()
+            await session.refresh(plan)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Plan '{body.name}' already exists",
+        ) from exc
     return PlanResponse.model_validate(plan)
 
 
@@ -95,11 +102,17 @@ async def list_tiers(request: Request) -> list[TierResponse]:
 @router.post("/tiers", response_model=TierResponse, status_code=status.HTTP_201_CREATED)
 async def create_tier(body: TierCreate, request: Request) -> TierResponse:
     database = request.app.state.database
-    async with database.session() as session:
-        tier = ModelTier(**body.model_dump())
-        session.add(tier)
-        await session.commit()
-        await session.refresh(tier)
+    try:
+        async with database.session() as session:
+            tier = ModelTier(**body.model_dump())
+            session.add(tier)
+            await session.commit()
+            await session.refresh(tier)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Tier '{body.alias}' already exists",
+        ) from exc
     await invalidate_tier(request.app.state.redis, body.alias)
     return TierResponse.model_validate(tier)
 
