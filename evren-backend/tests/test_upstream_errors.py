@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import json
+import time
+import uuid
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
 import httpx
 import pytest
+from app.models.enums import UsageStatus
+from app.services.credits import CreditLedger
 from app.services.upstream import normalize_upstream_error
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -9,7 +17,9 @@ from tests.helpers import register_and_login
 from tests.test_gateway import (
     CHAT_URL,
     MESSAGES,
+    _period_key,
     completion_response,
+    get_usage_events,
 )
 from tests.test_gateway import install_upstream as install_upstream_fixture
 from tests.test_plans_admin import create_plan_direct, create_tier_direct
@@ -49,6 +59,52 @@ def test_normalize_upstream_error_mapping() -> None:
     error = normalize_upstream_error(503, "not json at all")
     assert error.status_code == 502
     assert "503" in error.message
+
+
+def test_normalize_429_retry_after_from_body_iso_resets_at() -> None:
+    resets_at = datetime.now(UTC) + timedelta(seconds=90)
+    body = json.dumps({"error": {"message": "slow down", "resets_at": resets_at.isoformat()}})
+    error = normalize_upstream_error(429, body)
+    assert error.status_code == 429
+    retry_after = int(error.headers["Retry-After"])
+    assert 85 <= retry_after <= 90
+    assert error.extra is not None
+    assert error.extra["resets_at"] == resets_at.isoformat().replace("+00:00", "Z")
+
+
+def test_normalize_429_retry_after_from_epoch_resets_at() -> None:
+    resets_at = int(time.time()) + 45
+    body = json.dumps({"error": {"message": "slow down"}, "resets_at": resets_at})
+    error = normalize_upstream_error(429, body)
+    retry_after = int(error.headers["Retry-After"])
+    assert 40 <= retry_after <= 45
+    assert error.extra is not None
+
+
+def test_normalize_429_retry_after_from_rate_limit_reset_header() -> None:
+    resets_at = int(time.time()) + 33
+    error = normalize_upstream_error(
+        429,
+        '{"error": {"message": "slow down"}}',
+        headers=httpx.Headers({"x-ratelimit-reset": str(resets_at)}),
+    )
+    retry_after = int(error.headers["Retry-After"])
+    assert 28 <= retry_after <= 33
+    assert error.extra is not None
+
+
+def test_normalize_429_header_retry_after_takes_precedence() -> None:
+    resets_at = datetime.now(UTC) + timedelta(seconds=500)
+    body = json.dumps({"error": {"message": "slow down", "resets_at": resets_at.isoformat()}})
+    error = normalize_upstream_error(429, body, headers=httpx.Headers({"retry-after": "42"}))
+    assert error.headers["Retry-After"] == "42"
+    assert error.extra is not None
+
+
+def test_normalize_429_defaults_without_hints() -> None:
+    error = normalize_upstream_error(429, '{"error": {"message": "slow down"}}')
+    assert error.headers["Retry-After"] == "30"
+    assert error.extra is None
 
 
 @pytest.fixture
@@ -175,3 +231,58 @@ async def test_breaker_success_resets_counter(
         CHAT_URL, json={"model": "fast", "messages": MESSAGES}, headers=headers
     )
     assert response.status_code == 200
+
+
+async def test_upstream_429_surfaces_resets_at(
+    client: AsyncClient, install_upstream, gateway_setup
+) -> None:
+    headers = await gateway_setup("rl429@example.com")
+    resets_at = datetime.now(UTC) + timedelta(seconds=120)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "error": {
+                    "message": "upstream busy",
+                    "type": "rate_limit_error",
+                    "code": None,
+                    "resets_at": resets_at.isoformat(),
+                }
+            },
+        )
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL, json={"model": "fast", "messages": MESSAGES, "stream": True}, headers=headers
+    )
+    assert response.status_code == 429
+    body = response.json()
+    assert body["error"]["code"] == "rate_limited"
+    assert body["error"]["resets_at"] == resets_at.isoformat().replace("+00:00", "Z")
+    assert 115 <= int(response.headers["retry-after"]) <= 120
+
+
+async def test_upstream_429_failed_event_releases_reserve(
+    client: AsyncClient, app: FastAPI, install_upstream, gateway_setup
+) -> None:
+    headers = await gateway_setup("rl429b@example.com")
+    resets_at = datetime.now(UTC) + timedelta(seconds=60)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429, json={"error": {"message": "busy", "resets_at": resets_at.isoformat()}}
+        )
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL, json={"model": "fast", "messages": MESSAGES}, headers=headers
+    )
+    assert response.status_code == 429
+
+    user_id = uuid.UUID((await client.get("/me", headers=headers)).json()["id"])
+    events = await get_usage_events(app, user_id)
+    assert events[0].status == UsageStatus.FAILED
+    assert events[0].credits_charged == Decimal("0.000000")
+    ledger = CreditLedger(app.state.redis)
+    assert await ledger.used(user_id, await _period_key(app, user_id)) == Decimal("0.000000")

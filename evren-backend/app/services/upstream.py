@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from math import ceil
 from typing import Any
 
 import httpx
@@ -112,11 +114,52 @@ class UpstreamClient:
         await self._client.aclose()
 
 
+def _parse_resets_at(value: Any) -> datetime | None:
+    """Parse a resets_at hint: epoch seconds (int/str) or ISO-8601 string."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=UTC)
+        if isinstance(value, str):
+            text = value.strip()
+            if text.replace(".", "", 1).isdigit():
+                return datetime.fromtimestamp(float(text), tz=UTC)
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+    return None
+
+
+def _find_body_resets_at(parsed: Any) -> datetime | None:
+    """Look for resets_at hints in an upstream 429 body (EVREN style)."""
+    if not isinstance(parsed, dict):
+        return None
+    candidates: list[Any] = []
+    error = parsed.get("error")
+    if isinstance(error, dict):
+        candidates.extend((error.get("resets_at"), error.get("reset_at")))
+    candidates.extend((parsed.get("resets_at"), parsed.get("reset_at")))
+    for candidate in candidates:
+        parsed_dt = _parse_resets_at(candidate)
+        if parsed_dt is not None:
+            return parsed_dt
+    return None
+
+
+def _to_iso_z(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def normalize_upstream_error(
     status_code: int, body_text: str, headers: httpx.Headers | None = None
 ) -> ApiError:
     message = f"Upstream request failed with status {status_code}"
     upstream_code: str | None = None
+    parsed: Any = None
     try:
         parsed = json.loads(body_text)
         error = parsed.get("error") if isinstance(parsed, dict) else None
@@ -143,14 +186,32 @@ def normalize_upstream_error(
             code="upstream_auth_error",
         )
     if status_code == 429:
-        retry_after = headers.get("retry-after") if headers is not None else None
-        response_headers = {"Retry-After": retry_after if retry_after else "30"}
+        now = datetime.now(UTC)
+        resets_at = _find_body_resets_at(parsed)
+        retry_after: int | None = None
+        header_retry_after = headers.get("retry-after") if headers is not None else None
+        if header_retry_after is not None:
+            try:
+                retry_after = max(int(float(header_retry_after)), 0)
+            except ValueError:
+                retry_after = None
+        if retry_after is None and resets_at is None:
+            header_reset = headers.get("x-ratelimit-reset") if headers is not None else None
+            if header_reset is not None:
+                resets_at = _parse_resets_at(header_reset)
+        if retry_after is None:
+            if resets_at is not None:
+                retry_after = max(ceil((resets_at - now).total_seconds()), 1)
+            else:
+                retry_after = 30
+        extra = {"resets_at": _to_iso_z(resets_at)} if resets_at is not None else None
         return ApiError(
             status_code=429,
             message=message,
             type="rate_limit_error",
             code="rate_limited",
-            headers=response_headers,
+            headers={"Retry-After": str(retry_after)},
+            extra=extra,
         )
     if status_code == 408:
         return ApiError(
