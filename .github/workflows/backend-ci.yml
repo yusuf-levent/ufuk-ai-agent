@@ -1,0 +1,60 @@
+name: backend-ci
+
+on:
+  push:
+    paths:
+      - "evren-backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "evren-backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+defaults:
+  run:
+    working-directory: evren-backend
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: evren
+          POSTGRES_PASSWORD: evren
+          POSTGRES_DB: evren
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U evren -d evren"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://evren:evren@localhost:5432/evren
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789abcdef
+      UPSTREAM_API_KEY: ci-upstream-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: evren-backend/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check app tests alembic
+      - run: ruff format --check app tests alembic
+      - run: mypy
+      - run: pytest -q
+      - run: pip-audit --skip-editable
