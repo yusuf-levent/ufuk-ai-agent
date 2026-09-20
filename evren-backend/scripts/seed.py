@@ -28,7 +28,7 @@ PROVIDER = os.environ.get("SEED_PROVIDER", "evren-llmapi")
 DEFAULT_TIERS = {
     "fast": {
         "display_name": "Fast",
-        "upstream_model_id": os.environ.get("SEED_FAST_MODEL", "gpt-4o-mini"),
+        "upstream_model_id": os.environ.get("SEED_FAST_MODEL", "deepseek-v4-flash"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.5"),
         "output_credits_per_1k_tokens": Decimal("1.0"),
@@ -37,7 +37,7 @@ DEFAULT_TIERS = {
     },
     "balanced": {
         "display_name": "Balanced",
-        "upstream_model_id": os.environ.get("SEED_BALANCED_MODEL", "gpt-4o"),
+        "upstream_model_id": os.environ.get("SEED_BALANCED_MODEL", "gemma-4-31b"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("1.5"),
         "output_credits_per_1k_tokens": Decimal("3.0"),
@@ -46,8 +46,8 @@ DEFAULT_TIERS = {
     },
     "strong": {
         "display_name": "Strong",
-        "upstream_model_id": os.environ.get("SEED_STRONG_MODEL", "anthropic/claude-sonnet-4"),
-        "upstream_provider_name": os.environ.get("SEED_STRONG_PROVIDER", "openrouter"),
+        "upstream_model_id": os.environ.get("SEED_STRONG_MODEL", "glm-5.3"),
+        "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("4.0"),
         "output_credits_per_1k_tokens": Decimal("8.0"),
         "max_output_tokens": 16384,

@@ -46,9 +46,9 @@ async def chat(
     client: httpx.AsyncClient, settings, *, prompt: str, model: str | None, stream: bool
 ) -> None:
     payload: dict[str, object] = {
-        "model": model or "gpt-4o-mini",
+        "model": model or "glm-5.3",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 64,
+        "max_tokens": 512,
         "stream": stream,
     }
     if stream:
@@ -96,7 +96,7 @@ async def chat(
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chat", metavar="PROMPT", help="run a tiny chat completion")
-    parser.add_argument("--model", help="upstream model id (default: gpt-4o-mini)")
+    parser.add_argument("--model", help="upstream model id (default: glm-5.3)")
     parser.add_argument("--stream", action="store_true", help="use streaming")
     args = parser.parse_args()
 

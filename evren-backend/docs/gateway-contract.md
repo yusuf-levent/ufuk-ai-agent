@@ -26,8 +26,11 @@ against this document.
   }
   ```
 
-- `429` responses always include a `Retry-After` header (seconds). The agent may
-  prefer a body hint `error.resets_at` (ISO-8601) when present.
+- `429` responses always include a `Retry-After` header (seconds). The body also
+  carries `error.resets_at` (ISO-8601, UTC) whenever the gateway can derive it:
+  for its own RPM limit it is `now + Retry-After`; for upstream 429s it comes
+  from the upstream `resets_at` body hint or the `X-RateLimit-Reset` header
+  (epoch seconds). When no hint exists, `Retry-After` defaults to 30.
 
 ## Endpoints
 
@@ -80,20 +83,39 @@ Response (standard OpenAI shape; `model` is the tier alias):
   "object": "chat.completion",
   "created": 1700000000,
   "model": "fast",
-  "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hi!"}, "finish_reason": "stop"}],
-  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "Hi!", "reasoning": "..."}, "finish_reason": "stop"}],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": {"reasoning_tokens": 3}}
 }
 ```
+
+EVREN-specific notes (verified against the real upstream):
+
+- All current upstream models are **reasoning models**: `message.reasoning`
+  (non-streaming) and `delta.reasoning` (streaming) carry chain-of-thought
+  text that IS billed as completion tokens. `usage.completion_tokens_details.
+  reasoning_tokens` shows the split. With small `max_tokens` the entire budget
+  can be consumed by reasoning and `content` may be `null` — request enough
+  `max_tokens` for reasoning + answer.
+- Tokenizer overhead: short prompts are billed with a per-request overhead
+  (measured: "Say OK" ≈ 90 prompt tokens on `fast`, ≈ 21 on `balanced`,
+  ≈ 17 on `strong`).
+- The upstream attaches a private `usage.evren` sub-object (platform credits,
+  routed model). The gateway **strips it** before returning anything to the
+  client; only the standard usage fields above are forwarded.
 
 ### POST /v1/chat/completions (streaming)
 
 Send `"stream": true`. The response is standard OpenAI SSE
-(`text/event-stream`, no buffering, `X-Accel-Buffering: no`). The gateway
-injects `stream_options: {"include_usage": true}` upstream and passes the final
-usage chunk through. `tool_calls` deltas pass through unchanged. Every data
-chunk's `model` field shows the tier alias. If the client disconnects
-mid-stream, the upstream call is cancelled and partial usage is recorded
-(estimated).
+(`text/event-stream`, no buffering, `X-Accel-Buffering: no`; measured first
+chunk ≈ 0.2–0.3 s, inter-chunk gap ≈ 15 ms against the real upstream). The
+gateway injects `stream_options: {"include_usage": true}` upstream and passes
+the final usage chunk through (with the private `evren` sub-object stripped).
+`tool_calls` deltas pass through unchanged, including `delta.reasoning`
+fragments. Every data chunk's `model` field shows the tier alias. If the
+client disconnects mid-stream, the upstream call is cancelled and partial
+usage is recorded (estimated from streamed content INCLUDING reasoning text).
 
 ### GET /v1/models
 
@@ -109,7 +131,7 @@ mid-stream, the upstream call is cancelled and partial usage is recorded
       "details": {
         "display_name": "Fast",
         "upstream_provider": "evren-llmapi",
-        "upstream_model": "gpt-4o-mini",
+        "upstream_model": "deepseek-v4-flash",
         "max_output_tokens": 4096,
         "context_window": 128000
       }
@@ -117,6 +139,29 @@ mid-stream, the upstream call is cancelled and partial usage is recorded
   ]
 }
 ```
+
+### Tier → real upstream model mapping (verified live, 2026-09)
+
+| Tier alias | Requested model ID | Upstream routes to |
+|---|---|---|
+| `fast` | `deepseek-v4-flash` | `deepseek/deepseek-v4-flash` |
+| `balanced` | `gemma-4-31b` | `google/gemma-4-31b` |
+| `strong` | `glm-5.3` | `zai/glm-5.3-fp8` |
+
+Other models available on the upstream account: `qwen3-vl-30b` (vision),
+`qwen3-embedding-8b`, `qwen3-reranker-8b`, `qwen3-asr-1.7b`, `dots-ocr`,
+`deepseek-ocr-2`, `auto`. The response `model`/`usage` never exposes the
+routed model to clients; only `GET /v1/models` details show the configured
+upstream model IDs.
+
+### Upstream rate limiting (EVREN)
+
+The upstream enforces a per-minute **token bucket** (response headers
+`X-RateLimit-Limit-Tokens: 1000000`, `X-RateLimit-Remaining-Tokens`,
+`X-RateLimit-Reset` epoch seconds; small requests carry a per-model quota
+weight). When it returns 429, the gateway forwards 429 with `Retry-After`
+computed as: upstream `Retry-After` header, else `resets_at`/`X-RateLimit-Reset`
+derived seconds, else 30 — and surfaces `error.resets_at` in the body.
 
 ## Error codes
 
@@ -126,7 +171,8 @@ mid-stream, the upstream call is cancelled and partial usage is recorded
 | 401 | `invalid_credentials` / `invalid_api_key` / `token_expired` / `invalid_refresh_token` / `refresh_token_reused` | auth problems |
 | 402 | `quota_exceeded` | monthly credit limit exhausted (do NOT retry until period reset) |
 | 403 | `model_not_allowed` / `subscription_inactive` / `forbidden` | plan/permission problems |
-| 429 | `rate_limited` | RPM exceeded or upstream rate limit (`Retry-After` always set) |
+| 409 | `Plan '...' already exists` / `Tier '...' already exists` | admin create with duplicate name/alias |
+| 429 | `rate_limited` | RPM exceeded or upstream rate limit (`Retry-After` always set, `error.resets_at` when derivable) |
 | 502 | `upstream_error` / `upstream_unavailable` / `upstream_auth_error` | upstream failures (one connect retry, circuit breaker) |
 | 503 | `upstream_unavailable` | circuit breaker open (`Retry-After: 30`) |
 | 504 | `timeout` | upstream timeout |
@@ -141,7 +187,14 @@ mid-stream, the upstream call is cancelled and partial usage is recorded
 - Usage accounting: credits = prompt×in_rate + completion×out_rate per 1k tokens
   (tier rates). Concurrent requests reserve before calling upstream, so
   overspending is not possible. Missing upstream usage is estimated
-  (`estimated: true` in internal records).
+  (`estimated: true` in internal records). Every request gets a fresh
+  gateway-generated `request_id`; there is NO client-supplied idempotency key —
+  a retried request is a new charge (internal settle is idempotent, so a
+  request is never double-charged).
+- Measured cost per minimal request ("Say OK", gateway credits):
+  `fast` ≈ 0.06, `balanced` ≈ 0.15, `strong` ≈ 0.40; a tool-call round on
+  `fast` (schema in prompt) ≈ 0.26. The free plan's 100 credits therefore
+  cover roughly 1,100–1,600 plain requests or ~380 tool-call rounds on `fast`.
 
 ## Changelog
 
@@ -157,3 +210,8 @@ mid-stream, the upstream call is cancelled and partial usage is recorded
 - M6: upstream error normalization, single connect retry, circuit breaker,
   `/v1/models`, `/usage`, `/privacy/info`, account deletion, log-redaction tests.
 - M7: seed script, real-upstream integration script, README, contract finalized.
+- M8: live validation against the real EVREN upstream — real model IDs seeded,
+  `usage.evren` stripped from client responses, 429 `resets_at` parsing
+  (body hint / `X-RateLimit-Reset`), RPM 429 carries `error.resets_at`,
+  disconnect estimates include reasoning text, admin duplicate plan/tier
+  returns 409.
