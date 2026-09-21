@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from math import ceil
 from typing import Any
 
@@ -114,8 +115,33 @@ class UpstreamClient:
         await self._client.aclose()
 
 
+def _parse_http_date(value: str) -> datetime | None:
+    """Parse an HTTP-date style reset hint.
+
+    RFC 1123 ("Tue, 21 Sep 2026 20:00:00 GMT") and the verbose UTC format
+    some providers use for X-RateLimit-Reset (e.g. OpenRouter:
+    "Tuesday, February 6, 2024 8:13:17 PM UTC").
+    """
+    text = value.strip()
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (ValueError, TypeError):
+        parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    for fmt in ("%A, %B %d, %Y %I:%M:%S %p UTC", "%A, %B %d, %Y %H:%M:%S UTC"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
 def _parse_resets_at(value: Any) -> datetime | None:
-    """Parse a resets_at hint: epoch seconds (int/str) or ISO-8601 string."""
+    """Parse a resets_at hint: epoch seconds (int/str), ISO-8601 string or
+    HTTP-date string."""
     if isinstance(value, bool) or value is None:
         return None
     try:
@@ -125,7 +151,10 @@ def _parse_resets_at(value: Any) -> datetime | None:
             text = value.strip()
             if text.replace(".", "", 1).isdigit():
                 return datetime.fromtimestamp(float(text), tz=UTC)
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return _parse_http_date(text)
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=UTC)
             return parsed.astimezone(UTC)

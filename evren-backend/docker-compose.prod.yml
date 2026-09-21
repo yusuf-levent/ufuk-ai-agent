@@ -1,0 +1,54 @@
+# Production override for docker-compose.yml.
+#
+# Usage (from the backend root, with .env populated for prod):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from the dev stack:
+# - postgres/redis publish NO host ports (only reachable on the compose network)
+# - the api publishes no host port either; Caddy terminates TLS and proxies to it
+# - Caddy gets automatic HTTPS for UFUK_DOMAIN (Let's Encrypt; needs ports 80/443
+#   reachable and a DNS record pointing at this host)
+#
+# Nothing in this repo deploys this file; it is documentation-grade.
+
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  api:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: prod
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      UFUK_DOMAIN: ${UFUK_DOMAIN:?set UFUK_DOMAIN in .env (e.g. api.example.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

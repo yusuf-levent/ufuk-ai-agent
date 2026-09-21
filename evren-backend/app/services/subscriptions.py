@@ -77,21 +77,49 @@ async def ensure_default_subscription(db: Database, user_id: uuid.UUID) -> bool:
 
 
 async def assign_plan(db: Database, user_id: uuid.UUID, plan_id: uuid.UUID) -> Subscription:
+    """Assign a plan to a user.
+
+    Billing-period rule: if the user has a subscription that is active *now*,
+    the new subscription inherits its period_start/period_end. Credits already
+    used in that period keep counting against the new plan's limit, so a plan
+    change can never reset usage mid-period (abuse vector: exhaust credits,
+    re-assign a plan — even the same one — and get a fresh period). With no
+    currently-active subscription (new user, expired period), a fresh 30-day
+    period starts at assignment time. The Redis credit ledger is keyed by
+    period_start.date(), so inheriting the period also keeps the ledger.
+    """
     now = utcnow()
     async with db.session() as session:
-        await session.execute(
-            update(Subscription)
+        current = await session.scalar(
+            select(Subscription)
             .where(
                 Subscription.user_id == user_id,
                 Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.period_end > now,
             )
-            .values(status=SubscriptionStatus.CANCELLED)
+            .order_by(Subscription.period_start.desc())
+            .limit(1)
         )
+        if current is not None:
+            period_start = current.period_start
+            period_end = current.period_end
+            current.status = SubscriptionStatus.CANCELLED
+        else:
+            period_start = now
+            period_end = now + timedelta(days=PERIOD_DAYS)
+            await session.execute(
+                update(Subscription)
+                .where(
+                    Subscription.user_id == user_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+                .values(status=SubscriptionStatus.CANCELLED)
+            )
         subscription = Subscription(
             user_id=user_id,
             plan_id=plan_id,
-            period_start=now,
-            period_end=now + timedelta(days=PERIOD_DAYS),
+            period_start=period_start,
+            period_end=period_end,
             status=SubscriptionStatus.ACTIVE,
         )
         session.add(subscription)

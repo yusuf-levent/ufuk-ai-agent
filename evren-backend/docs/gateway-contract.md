@@ -219,3 +219,13 @@ derived seconds, else 30 — and surfaces `error.resets_at` in the body.
   disconnect estimates include reasoning text, admin duplicate plan/tier
   returns 409, per-tier `max_tokens` ceilings raised for reasoning models
   (fast/balanced 8192, strong 16384; plan caps raised to match).
+- M9: plan changes keep the billing period (usage counters are never reset
+  mid-period; the new plan's limit applies to credits already used —
+  regression-tested). Upstream switch to OpenRouter verified against a
+  contract-faithful mock (env-only: `UPSTREAM_BASE_URL`, `UPSTREAM_API_KEY`,
+  `UPSTREAM_AUTH_HEADER`): final-chunk usage capture, OpenRouter-style error
+  bodies, 429 `X-RateLimit-Reset` verbose HTTP-date parsing (plus RFC 1123),
+  `Retry-After` forwarded, failed requests never charged. Upstream-private
+  `usage.cost` (OpenRouter USD cost) is stripped from client responses like
+  `usage.evren`. Tier `upstream_model_id` values remain configurable
+  placeholders (admin API / seed env overrides).

@@ -42,9 +42,10 @@ router = APIRouter(prefix="/v1", tags=["gateway"])
 
 LEDGER_TTL_GRACE_SECONDS = 5 * 24 * 3600
 
-# Upstream-private usage sub-objects (platform billing/routing internals)
-# that must never be forwarded to gateway clients.
-PROTECTED_USAGE_FIELDS = ("evren",)
+# Upstream-private usage sub-objects/fields (platform billing/routing internals)
+# that must never be forwarded to gateway clients: `evren` (EVREN platform
+# credits + routed model) and `cost` (OpenRouter-style upstream USD cost).
+PROTECTED_USAGE_FIELDS = ("evren", "cost")
 
 
 def _strip_protected_usage(obj: dict[str, Any]) -> bool:

@@ -66,7 +66,7 @@ CI runs the same steps (`.github/workflows/backend-ci.yml` at the repo root).
 
 | Variable | Default | Notes |
 |---|---|---|
-| `UPSTREAM_BASE_URL` | `https://evren-llmapi.ssyz.org.tr/v1` | switch to OpenRouter later by changing only this |
+| `UPSTREAM_BASE_URL` | `https://evren-llmapi.ssyz.org.tr/v1` | switch to OpenRouter by changing only this (see below) |
 | `UPSTREAM_API_KEY` | — | required, never sent to clients, never logged |
 | `UPSTREAM_AUTH_HEADER` | `Authorization` | `Authorization` (Bearer) or `X-API-Key` |
 | `UPSTREAM_TIMEOUT_SECONDS` | `300` | read timeout for upstream calls |
@@ -97,7 +97,52 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/v1/chat/completions `
 Streaming works exactly like OpenAI SSE (`"stream": true`); the final usage chunk is
 passed through and the `model` field always shows the tier alias.
 
+## Switching the upstream to OpenRouter (env only)
+
+No code changes are required — the gateway talks to any OpenAI-compatible
+upstream. Set in `.env`:
+
+```ini
+UPSTREAM_BASE_URL=https://openrouter.ai/api/v1
+UPSTREAM_API_KEY=sk-or-...            # your OpenRouter key
+UPSTREAM_AUTH_HEADER=Authorization    # Bearer (default); X-API-Key also supported
+```
+
+Then point each tier's `upstream_model_id` at the model you want (these are
+**configurable placeholders** — pick current ids from the OpenRouter model
+pages, don't trust examples):
+
+```powershell
+# seed-time overrides
+$env:SEED_PROVIDER = "openrouter"
+$env:SEED_FAST_MODEL = "openrouter/fast-placeholder"     # placeholder
+$env:SEED_BALANCED_MODEL = "openrouter/balanced-placeholder"
+$env:SEED_STRONG_MODEL = "openrouter/strong-placeholder"
+.venv\Scripts\python scripts\seed.py --force
+
+# or per-tier at runtime via the admin API (PATCH /admin/tiers/{id})
+```
+
+Verified behavior against a mocked OpenRouter-style upstream
+(`tests/test_openrouter_upstream.py`): usage in the final stream chunk
+(`: OPENROUTER PROCESSING` comment lines tolerated), OpenRouter-style error
+bodies (`{"error": {"message", "code"}}` with numeric codes), 429s with
+`X-RateLimit-Reset` verbose HTTP-dates (and RFC 1123), `Retry-After`
+forwarding, and failed requests never charged. OpenRouter's upstream
+`usage.cost` (USD) is stripped from client responses just like the EVREN
+private `usage.evren` object.
+
+## Backup, restore and production deployment
+
+See [docs/backup-restore.md](docs/backup-restore.md) for backup/restore
+procedures (pg_dump, secrets, Redis rebuildability) and
+[docker-compose.prod.yml](docker-compose.prod.yml) + [deploy/Caddyfile](deploy/Caddyfile)
+for the production stack (no exposed DB/Redis ports, Caddy TLS reverse proxy).
+Nothing is deployed by this repo; both are documentation-grade artifacts.
+
 ## Adding a tier (no code change)
+
+
 
 ```powershell
 # as an admin (ADMIN_EMAILS) user
@@ -136,6 +181,46 @@ overspend. Usage rows are keyed by a unique `request_id`; settling is an
 idempotent state transition (`reserved → settled/failed`), so a request is never
 double-charged. If the upstream does not report usage, tokens are estimated
 (chars/4) and the row is marked `estimated = true`.
+
+**Plan changes never reset usage.** Assigning a plan while a subscription is
+active keeps the current billing period; the new plan's limit applies to the
+credits already used in that period (regression-tested in
+`tests/test_plan_change_usage.py`). A fresh 30-day period starts only when the
+user has no active subscription.
+
+### Credit rates are data, not code
+
+The two rate columns live on the `model_tiers` table
+(`input_credits_per_1k_tokens`, `output_credits_per_1k_tokens`) and are edited
+through the admin API (`POST/PATCH /admin/tiers`) or set initially by
+`scripts/seed.py`. Nothing in the app code hardcodes rates; changing a rate
+affects only future requests (settled rows keep the amount actually charged).
+
+Derive rates from the upstream's real USD/1M-token list prices:
+
+```
+input_credits_per_1k  = (usd_per_1m_in  / 1000) × credits_per_usd × (1 + margin)
+output_credits_per_1k = (usd_per_1m_out / 1000) × credits_per_usd × (1 + margin)
+```
+
+- `credits_per_usd` — product decision: how many credits a user gets per dollar
+  (e.g. `1000` → one credit ≈ $0.001 of upstream budget).
+- `margin` — covers tokenizer overhead vs. the upstream's own token counts,
+  refunded failed requests, payment fees and free usage (e.g. `0.3` = +30%).
+
+Helper (placeholders below, **not real prices** — always take current prices
+from the upstream's pricing page):
+
+```powershell
+.venv\Scripts\python scripts\derive_credit_rates.py `
+  --tiers fast=0.15:0.60 balanced=0.50:2.00 strong=1.25:10.00 `
+  --margin 0.3 --credits-per-usd 1000
+# prints the rates plus ready-to-use admin PATCH bodies
+```
+
+The seeded rates (`fast` 0.5/1.0, `balanced` 1.5/3.0, `strong` 4.0/8.0 per 1k)
+are initial placeholder values for the EVREN upstream, not derived from a real
+price sheet — replace them before production.
 
 ## Privacy
 

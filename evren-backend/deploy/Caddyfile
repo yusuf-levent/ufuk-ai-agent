@@ -1,0 +1,33 @@
+# Caddy reverse proxy for the Ufuk backend (production).
+#
+# Automatic HTTPS via Let's Encrypt for the domain in the UFUK_DOMAIN env var
+# (docker-compose.prod.yml passes it through). The api is only reachable
+# through this proxy; postgres and redis are not published at all.
+#
+# - SSE passthrough: flush immediately, no buffering (gateway sets
+#   X-Accel-Buffering: no; Caddy flushes by default for streaming responses).
+# - Timeouts generous enough for long LLM completions (UPSTREAM_TIMEOUT_SECONDS
+#   defaults to 300s on the api side).
+
+{$UFUK_DOMAIN} {
+	encode zstd gzip
+
+	# SSE-friendly defaults: keep the connection open for long completions
+	# and stream response bodies as they arrive.
+	reverse_proxy api:8000 {
+		flush_interval -1
+		transport http {
+			response_header_timeout 600s
+			dial_timeout 10s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# The desktop app is an Electron renderer with its own CSP; the backend
+		# API never serves HTML.
+	}
+}
