@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/*
+ * Ufuk global styles (Tailwind v4). Theme variables for dark (default) and
+ * light are toggled with the `dark` class on <html> (class-based dark mode).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

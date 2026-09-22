@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# electron build output
+frontend/out/
+frontend/dist/
+frontend/release/
+frontend/test-results/
+frontend/playwright-report/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# env / secrets (real .env lives here untracked on purpose)
+.env
+.env.*
+!.env.example
+
+# logs / os
+*.log
+Thumbs.db

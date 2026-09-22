@@ -1,15 +1,16 @@
-# Ufuk — Status (2026-09-21)
+# Ufuk — Status (2026-09-23)
 
-Product name: **Ufuk**. The desktop app lives in `frontend/` (to be created), a
-sibling of `evren-agent/` and `evren-backend/` in this workspace.
+Product name: **Ufuk**. The desktop app lives in `frontend/` (skeleton +
+security baseline done in Milestone 3), a sibling of `evren-agent/` and
+`evren-backend/` in this workspace.
 
 ## Baseline (verified today)
 
 | Component | Stack | Tests |
 |---|---|---|
-| `evren-agent` | TypeScript, pnpm monorepo (agent-core, local-runner, apps/cli) | **188 passed** (agent-core 76, local-runner 112) |
-| `evren-backend` | Python 3.12 / FastAPI, Postgres 17 + Redis 7 (Docker) | **100 passed** |
-| `frontend` | not started (Milestone 3) | — |
+| `evren-agent` | TypeScript, pnpm monorepo (agent-core, local-runner, apps/cli) | **231 passed** (agent-core 76, local-runner 147 + 8 platform-skips) |
+| `evren-backend` | Python 3.12 / FastAPI, Postgres 17 + Redis 7 (Docker) | **115 passed** |
+| `frontend` | Electron 44 + React 18 + TS strict (Milestone 3 done) | **52 unit + 7 e2e passed** |
 
 Tooling: Node 24.11.1, pnpm 12.4.2, Python 3.12.7, Docker 29.6.2. The backend
 stack (postgres :5433, redis :6380, api :8000) is currently running on this
@@ -88,7 +89,12 @@ anything else) — nothing gets pushed.
 
 ### Frontend
 
-- Does not exist yet (Milestones 3–9).
+- Milestone 3 done (skeleton + security baseline); see docs/PROGRESS.md.
+- Remaining for M4–M9: login/settings/privacy UI, projects & conversations,
+  chat & agent view, approvals/diffs/undo, tiers/credits/errors, hardening.
+- better-sqlite3 has no Electron-44 (ABI 149) prebuild and no VS Build
+  Tools on this machine → the app runs on the tested JSONL fallback until
+  that changes.
 
 ## Risks
 

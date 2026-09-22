@@ -1,0 +1,18 @@
+# build output
+out/
+dist/
+release/
+
+# dependencies (installed at the workspace root via pnpm)
+node_modules/
+
+# test artifacts
+test-results/
+playwright-report/
+
+# local env / secrets
+.env
+.env.*
+
+# logs
+*.log

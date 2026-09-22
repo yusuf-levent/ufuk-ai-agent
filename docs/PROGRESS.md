@@ -1,5 +1,98 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 3: Frontend skeleton + security baseline
+
+**Baseline:** agent 231 tests / backend 115 tests, all green.
+
+### What was done
+
+`frontend/` (product name **Ufuk**, package `ufuk`), wired into a root pnpm
+workspace (`pnpm-workspace.yaml` includes `evren-agent/packages/*` +
+`frontend`, so `@evren/agent-core` / `@evren/local-runner` are imported as
+`workspace:*` — no forked logic; `evren-agent` keeps its own nested
+workspace file and tests unchanged).
+
+- **Stack:** electron-vite v5 (rolldown), Electron 44.4.3, React 18 +
+  TypeScript strict (node/web split tsconfigs), Tailwind v4, Zustand,
+  vitest (happy-dom for DOM tests, `@vitest-environment node` docblocks for
+  main-process tests), Playwright Electron.
+- **Architecture:** main process hosts the gateway session (GatewayAuth /
+  GatewayClient from agent-core, rebuilt when the backend URL setting
+  changes, token file namespaced per backend hash). Renderer is UI-only:
+  `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`,
+  `webSecurity: true`; all permission requests denied; ALL navigation
+  blocked (single-page app; external links go through a confirmed
+  `shell.openExternal` IPC); `window.open` denied via `setWindowOpenHandler`;
+  `<webview>` attachment prevented; single-instance lock.
+- **IPC contract:** `shared/channels.ts` (channel names, every channel
+  documented) + `shared/ipc.ts` (zod schemas, `InvokeMap`/`EventMap`
+  type-level tables, `IpcResult` envelope). Preload exposes exactly two
+  functions (`invoke`/`subscribe`) with channel allowlists. Main re-validates
+  every sender (`isTrustedSender`: own origin only) and zod-validates every
+  payload. `chat:event` channel declared to freeze the contract for M5/6.
+- **Tokens:** Electron safeStorage (DPAPI) `TokenStore` implementation
+  (`tokens-<hash>.bin` per backend), plain-JSON flagged fallback when
+  safeStorage is unavailable, corrupted-file handling forces re-login. The
+  CLI file store keeps working; the app deliberately does NOT share CLI
+  tokens (refresh rotation + reuse detection would revoke both).
+- **CSP:** injected as a meta tag at build time by a vite plugin
+  (`shared/csp.ts`): production is fully strict (`script-src 'self'`, no
+  unsafe-inline/eval anywhere); dev only widens `style-src` (Vite HMR) and
+  the HMR websocket.
+- **Untrusted output:** `SafeMarkdown` (react-markdown + rehype-sanitize,
+  default schema) — no raw HTML, links render as buttons that go through
+  the confirmed openExternal IPC (http(s) only, enforced in main by
+  `parseExternalUrl`), code blocks inert.
+- **better-sqlite3:** kept external in the bundle; `rebuild:native` script
+  (electron-builder install-app-deps) configured. See open issues.
+
+### Bugs found and fixed while finishing the milestone
+
+- **`electron` npm shim bundled into main+preload** (the app printed
+  "Downloading Electron binary..." and died with "Unable to find Electron
+  app at .../install.js"): electron-vite v5's `externalizeDepsPlugin()`
+  only externalizes `dependencies`, and `electron` is a devDependency.
+  Explicit `rollupOptions.external: ["electron", ...]` for main and preload
+  fixes it. Regression-covered by the e2e suite (app must boot).
+- **Security handlers registered too late:** `web-contents-created`
+  handlers were attached inside `installSecurityDefaults(window)` after the
+  window existed, so `setWindowOpenHandler`/`will-navigate` never applied
+  to the main window. Now installed in `whenReady()` BEFORE the first
+  window; e2e asserts window.open is blocked.
+- zod v4 strictness: `z.string().email()` regex rejects 1-letter TLDs
+  (tests now use realistic emails); `z.string().url()` accepts any scheme →
+  `backendUrl` now requires http(s) via a refine; schema-internal `.options`
+  poking replaced by behavioral enum tests.
+- Gateway session helpers (`/me`, `/privacy/info`) used the global fetch →
+  now use the session's injectable `fetchImpl` (testable without network).
+- Renderer IPC client bound `window.ufuk` eagerly at import time (broke
+  unit tests without a bridge) → lazy binding.
+
+### Test counts
+
+- frontend: **52 unit** (7 files) + **7 Playwright Electron e2e** (window
+  opens, sandbox/node-leak checks, webPreferences baseline, strict CSP,
+  window.open blocked, IPC round-trip, channel allowlist)
+- evren-agent: 231 (untouched), evren-backend: 115 (untouched)
+- lint + typecheck clean (eslint 9 flat config, prettier, two tsconfigs)
+
+### Commits
+
+- outer repo: `frontend/` skeleton + security baseline, root workspace
+  files, README, docs
+
+### Open issues / notes
+
+- **better-sqlite3 cannot load under Electron 44 yet:** Electron 44 uses
+  ABI 149; better-sqlite3 v12.11.1 publishes prebuilds only up to
+  electron-v146, and this machine has no VS Build Tools (node-gyp fails).
+  `rebuild:native` is configured for when either changes. The app therefore
+  runs on the **JSONL fallback** (by design: `openConversationStore` prefers
+  SQLite, falls back to JSONL — tested in local-runner). Revisit when
+  better-sqlite3 ships ABI-149 prebuilds or install VS Build Tools.
+- M4+ (login/settings/privacy UI, projects, chat) still to come; the M3
+  shell only proves the security baseline end to end.
+
 ## 2026-09-22 — Milestone 2: Agent security suite
 
 **Baseline:** agent 188 tests / backend 115 tests, all green.
