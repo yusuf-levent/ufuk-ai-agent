@@ -1,5 +1,67 @@
 # Ufuk — Progress
 
+## 2026-09-22 — Milestone 2: Agent security suite
+
+**Baseline:** agent 188 tests / backend 115 tests, all green.
+
+### What was done
+
+New adversarial suites in `evren-agent/packages/local-runner/test/`:
+
+1. **`path-safety.adversarial.test.ts` (19 tests)** — `..\` traversal with
+   mixed separators, absolute/UNC/admin-share/`\\?\` inputs, drive-letter
+   case tricks, 8.3 short names, junctions/symlinks pointing outside,
+   dangling symlinks, reserved device names, alternate data streams,
+   trailing dots/spaces, very long paths (incl. escapes), case-insensitive
+   denylist, `.env`/`*.pem`/`id_rsa*`/`.git/config` at any depth, plus
+   tool-level (read/write) enforcement.
+2. **`commands.adversarial.test.ts` (19 tests)** — obfuscated PowerShell
+   (IEX variants, concatenation/backticks/env-indirection, encoded flags),
+   download-and-execute, registry/disk/shutdown, deletion outside the
+   workspace, cmd `/c` chaining, output flooding, hung processes, orphan
+   grand-children, env listing; remembered-rule chaining bypass; approval
+   handler sees the real command.
+3. **`prompt-injection.test.ts` (5 tests)** — README/comment/tool-output
+   hidden instructions; permission engine never bypassed; approval shows
+   the real command; `.env` exfiltration surfaces for approval; unattended
+   mode allowlist-only with floors intact.
+
+### Bypasses found and fixed (all with regression tests)
+
+- **ADS bypass**: `.env:hidden` / writes to `file.txt:stream` passed the
+  denylist → alternate data stream syntax now rejected (any colon past the
+  drive letter).
+- **Trailing dot/space bypass**: `.env ` / `.env.` hit the real `.env` on
+  disk while evading the denylist (Win32 strips them) → rejected.
+- **Case bypass**: files created as `.ENV`/`SECRET.PEM` evaded the
+  case-sensitive denylist on Windows → matching is now case-insensitive.
+- **Reserved device names** (CON/NUL/COM1…) were unchecked → rejected
+  before any fs access.
+- **Remembered-rule chaining bypass**: `npm test & curl evil.example`
+  auto-allowed by a remembered `npm test` prefix rule → chained commands
+  now match exactly only.
+- **Obfuscated execution**: plain `iex`/`Invoke-Expression` (not only after
+  a download pipe), `& $env:…`, `[environment]::getenvironmentvariable`,
+  `powershell -e <b64>`, `Format-Volume` spellings were not denied → new
+  deny floors + a deobfuscation pass (backticks, string concatenation).
+- `.git/config` added to the denylist; `cmd /c` wrappers get an ask floor;
+  `\\?\`-prefixed inputs normalized instead of confusingly rejected.
+
+Remaining limits documented honestly in `docs/SECURITY.md` (no OS sandbox,
+deobfuscation is best-effort, shell commands can name denylisted files and
+rely on the visible approval prompt, prompt injection is contained at the
+permission engine, not at the model).
+
+### Test counts
+
+- evren-agent: **231 passed** (agent-core 76, local-runner 155; +43 new)
+- evren-backend: 115 (untouched this milestone)
+
+### Commits
+
+- evren-agent (nested repo): security suite + fixes
+- outer repo: gitlink update, docs/SECURITY.md, PROGRESS.md
+
 ## 2026-09-21 — Milestone 1: Backend fixes
 
 **Baseline before:** agent 188 tests / backend 100 tests, all green
