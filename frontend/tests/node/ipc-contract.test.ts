@@ -69,16 +69,23 @@ describe("payload schemas", () => {
     expect(LoginRequestSchema.safeParse({ email: "a@b.co" }).success).toBe(false);
   });
 
-  it("register extends login with an optional display name (max 100)", () => {
+  it("register extends login with an optional display name (password min 8, name max 100)", () => {
     expect(
-      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "x", displayName: "A" })
+      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "longenough", displayName: "A" })
         .success,
     ).toBe(true);
     expect(
-      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "x", displayName: "" }).success,
+      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "longenough" })
+        .success,
+    ).toBe(true);
+    expect(
+      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "short" }).success,
     ).toBe(false);
     expect(
-      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "x", displayName: "x".repeat(101) })
+      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "longenough", displayName: "" }).success,
+    ).toBe(false);
+    expect(
+      RegisterRequestSchema.safeParse({ email: "a@b.co", password: "longenough", displayName: "x".repeat(101) })
         .success,
     ).toBe(false);
   });

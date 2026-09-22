@@ -1,5 +1,43 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 4: Auth, settings, privacy
+
+### What was done
+
+- **PrivacyGate** (`src/screens/PrivacyGate.tsx`): first-run notice fetched
+  from `/privacy/info` through the main process; explains that code and
+  prompts go through the gateway to third-party providers, shows the
+  upstream host/providers and the gateway's data-handling + account-deletion
+  text; Continue stays disabled until the checkbox is ticked; acknowledging
+  persists `privacyAcknowledged: true` (shown once). Unreachable backend →
+  retryable error state with a Settings shortcut.
+- **LoginScreen** (`src/screens/LoginScreen.tsx`): login + register modes
+  (optional display name), loading states, logout in the shell, session
+  restore via `/me` on startup. Errors map to friendly text via
+  `src/ipc/errors.ts` (invalid_credentials / gateway_unreachable /
+  registration_failed / reauth_required). Register enforces the backend's
+  password rule (min 8) client-side too (schema updated).
+- **SettingsDialog** (`src/components/SettingsDialog.tsx`): backend URL
+  (http(s)-validated client-side, applied via settings:set — main rebuilds
+  the gateway session), theme (dark default + light), default tier
+  (fast/balanced/strong), permission mode (ask / auto-edits, explicitly no
+  allow-everything). Escape closes.
+- **App routing**: loading → privacy gate → login → main shell. Theme class
+  toggling centralized in the store.
+- **e2e**: smoke suite now runs the real flow against the local gateway
+  (fresh APPDATA per run): gate acknowledges → login screen; skips
+  gracefully (documented) if the backend is down.
+
+### Test counts
+
+- frontend: **62 unit** (8 files; +10 M4 DOM tests) + **8 e2e**
+- evren-backend: 115 (untouched), evren-agent: 231 (untouched)
+- lint + typecheck clean
+
+### Commits
+
+- outer repo: M4 auth/settings/privacy UI
+
 ## 2026-09-23 — Milestone 3: Frontend skeleton + security baseline
 
 **Baseline:** agent 231 tests / backend 115 tests, all green.

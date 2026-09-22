@@ -1,7 +1,12 @@
 /** App state (Zustand): settings + session, loaded through the IPC bridge. */
 import { create } from "zustand";
 import { api } from "../ipc/client";
-import type { SessionInfo, Settings } from "@shared/ipc";
+import type {
+  LoginRequest,
+  RegisterRequest,
+  SessionInfo,
+  Settings,
+} from "@shared/ipc";
 
 export interface AppStore {
   ready: boolean;
@@ -12,6 +17,9 @@ export interface AppStore {
   refreshSession: () => Promise<void>;
   patchSettings: (patch: Partial<Settings>) => Promise<void>;
   setSession: (s: SessionInfo | null) => void;
+  login: (req: LoginRequest) => Promise<void>;
+  register: (req: RegisterRequest) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -46,4 +54,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
   },
   setSession: (session) => set({ session }),
+  login: async (req) => {
+    await api.login(req);
+    await get().refreshSession();
+  },
+  register: async (req) => {
+    await api.register(req);
+    await get().refreshSession();
+  },
+  logout: async () => {
+    await api.logout();
+    set({ session: null });
+  },
 }));

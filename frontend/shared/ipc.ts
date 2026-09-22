@@ -80,6 +80,7 @@ export const LoginRequestSchema = z.object({
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
 export const RegisterRequestSchema = LoginRequestSchema.extend({
+  password: z.string().min(8, "password must be at least 8 characters"),
   displayName: z.string().min(1).max(100).optional(),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
