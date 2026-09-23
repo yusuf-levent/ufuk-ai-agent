@@ -170,7 +170,7 @@ describe("SafeMarkdown (untrusted model output)", () => {
   });
 
   it("markdown images with event-handler-like alt text are inert", async () => {
-    await render('![onerror=alert(1)](https://example.com/x.png)');
+    await render("![onerror=alert(1)](https://example.com/x.png)");
     const imgs = container.querySelectorAll("img");
     for (const img of imgs) {
       expect(img.getAttribute("onerror")).toBeNull();

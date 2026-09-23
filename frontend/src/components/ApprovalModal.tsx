@@ -10,7 +10,10 @@ import { useChatStore } from "../stores/chat";
 import { api } from "../ipc/client";
 
 /** Display-only categorization; the permission engine remains the enforcer. */
-function riskCategory(tool: string, input: Record<string, unknown>): {
+function riskCategory(
+  tool: string,
+  input: Record<string, unknown>,
+): {
   label: string;
   detail?: string;
 } {

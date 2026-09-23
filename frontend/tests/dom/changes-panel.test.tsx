@@ -24,7 +24,12 @@ const render = async (): Promise<void> => {
   root = createRoot(container);
   await act(async () => {
     root?.render(
-      <ChangesPanel project={project} conversationId="c_1" liveSteps={[]} turnActive={false} />,
+      <ChangesPanel
+        project={project}
+        conversationId="c_1"
+        liveSteps={[]}
+        turnActive={false}
+      />,
     );
   });
 };
@@ -78,7 +83,10 @@ describe("ChangesPanel", () => {
     });
     const calls = invoke.mock.calls.filter(([c]) => c === "checkpoints:diff");
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.[1]).toMatchObject({ root: project.root, path: "src/a.ts" });
+    expect(calls[0]?.[1]).toMatchObject({
+      root: project.root,
+      path: "src/a.ts",
+    });
     // diff viewer renders (inline mode) with add/del lines
     expect(container.textContent).toContain("−old");
     expect(container.textContent).toContain("+new");
@@ -110,7 +118,10 @@ describe("ChangesPanel", () => {
     const calls = invoke.mock.calls.filter(
       ([c]) => c === "projects:set-permission-mode",
     );
-    expect(calls.at(-1)?.[1]).toEqual({ root: project.root, mode: "auto-edits" });
+    expect(calls.at(-1)?.[1]).toEqual({
+      root: project.root,
+      mode: "auto-edits",
+    });
     expect(container.textContent).toContain("Commands still ask");
   });
 

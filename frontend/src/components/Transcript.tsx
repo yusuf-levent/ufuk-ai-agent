@@ -34,7 +34,9 @@ function Reveal({
         onClick={() => setExpanded(!expanded)}
         className="ml-1 text-xs text-sky-400 hover:underline"
       >
-        {expanded ? "show less" : `show all (${text.length.toLocaleString()} chars)`}
+        {expanded
+          ? "show less"
+          : `show all (${text.length.toLocaleString()} chars)`}
       </button>
     </span>
   );

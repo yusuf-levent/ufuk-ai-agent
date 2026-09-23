@@ -4,12 +4,15 @@
  * safeStorage failure paths.
  */
 import { describe, expect, it } from "vitest";
-import { isTrustedSender, parseExternalUrl } from "../../electron/main/security";
 import {
-  INVOKE_CHANNELS,
-  INVOKE_CHANNEL_SET,
-} from "@shared/channels";
-import { SafeStorageTokenStore, PlainTokenStore } from "../../electron/main/token-store";
+  isTrustedSender,
+  parseExternalUrl,
+} from "../../electron/main/security";
+import { INVOKE_CHANNELS, INVOKE_CHANNEL_SET } from "@shared/channels";
+import {
+  SafeStorageTokenStore,
+  PlainTokenStore,
+} from "../../electron/main/token-store";
 import { fakeSafe } from "./helpers/fake-safe-storage";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,22 +23,36 @@ const contents = (url: string): { getURL(): string } => ({ getURL: () => url });
 
 describe("isTrustedSender (origin policy)", () => {
   it("accepts the packaged app (file:) and the dev server on localhost", () => {
-    expect(isTrustedSender(contents("file:///C:/app/out/renderer/index.html") as never)).toBe(true);
-    expect(isTrustedSender(contents("http://localhost:5173/") as never)).toBe(true);
-    expect(isTrustedSender(contents("http://127.0.0.1:5173/") as never)).toBe(true);
+    expect(
+      isTrustedSender(
+        contents("file:///C:/app/out/renderer/index.html") as never,
+      ),
+    ).toBe(true);
+    expect(isTrustedSender(contents("http://localhost:5173/") as never)).toBe(
+      true,
+    );
+    expect(isTrustedSender(contents("http://127.0.0.1:5173/") as never)).toBe(
+      true,
+    );
   });
 
   it("rejects remote origins, other localhost ports on weird hosts, and invalid URLs", () => {
-    expect(isTrustedSender(contents("https://evil.example/") as never)).toBe(false);
+    expect(isTrustedSender(contents("https://evil.example/") as never)).toBe(
+      false,
+    );
     expect(isTrustedSender(contents("http:// attacker/") as never)).toBe(false);
     expect(isTrustedSender(contents("about:blank") as never)).toBe(false);
-    expect(isTrustedSender(contents("chrome-extension://x/") as never)).toBe(false);
+    expect(isTrustedSender(contents("chrome-extension://x/") as never)).toBe(
+      false,
+    );
     expect(isTrustedSender({ getURL: () => "not a url" } as never)).toBe(false);
   });
 
   it("the renderer origin can be spoofed only by... the renderer: dev-server https is still localhost", () => {
     // https on localhost is still our dev server behind a proxy — allowed
-    expect(isTrustedSender(contents("https://localhost:5173/") as never)).toBe(true);
+    expect(isTrustedSender(contents("https://localhost:5173/") as never)).toBe(
+      true,
+    );
   });
 });
 

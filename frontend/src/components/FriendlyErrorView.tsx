@@ -55,11 +55,16 @@ export function FriendlyErrorView({ turn }: { turn: LiveTurn }) {
       className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-xs text-red-300"
     >
       <div className="flex items-center gap-2 font-medium">
-        {turn.errorCode === "rate_limited" && countdown !== null && countdown > 0 && (
-          <span aria-label="countdown" className="tabular-nums text-amber-300">
-            {countdown}s
-          </span>
-        )}
+        {turn.errorCode === "rate_limited" &&
+          countdown !== null &&
+          countdown > 0 && (
+            <span
+              aria-label="countdown"
+              className="tabular-nums text-amber-300"
+            >
+              {countdown}s
+            </span>
+          )}
         <span>{headline()}</span>
       </div>
       {turn.errorCode !== "rate_limited" && turn.error && (
@@ -67,8 +72,8 @@ export function FriendlyErrorView({ turn }: { turn: LiveTurn }) {
       )}
       {turn.errorCode === "quota_exceeded" && (
         <div className="mt-1 opacity-80">
-          The request was not retried and nothing was charged. Check the
-          credit indicator (top right) or upgrade your plan.
+          The request was not retried and nothing was charged. Check the credit
+          indicator (top right) or upgrade your plan.
         </div>
       )}
       {turn.errorCode === "reauth_required" && (

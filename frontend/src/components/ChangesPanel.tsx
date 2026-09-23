@@ -7,11 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../ipc/client";
-import type {
-  CheckpointInfo,
-  DiffResponse,
-  ProjectInfo,
-} from "@shared/ipc";
+import type { CheckpointInfo, DiffResponse, ProjectInfo } from "@shared/ipc";
 import type { ToolStep } from "../stores/chat";
 import { DiffViewer } from "./DiffViewer";
 
@@ -58,9 +54,7 @@ export function ChangesPanel({
       setChangedFiles([]);
     } else {
       try {
-        setChangedFiles(
-          await api.changedFiles(project.root, conversationId),
-        );
+        setChangedFiles(await api.changedFiles(project.root, conversationId));
       } catch {
         setChangedFiles([]);
       }
@@ -98,7 +92,13 @@ export function ChangesPanel({
   // live file changes from the current run appear immediately
   const livePaths = liveSteps
     .filter((s) => (s.name === "write_file" || s.name === "edit_file") && s.ok)
-    .map((s) => s.argsSummary.replace(/^path:\s*/, "").split(",")[0]?.trim() ?? "")
+    .map(
+      (s) =>
+        s.argsSummary
+          .replace(/^path:\s*/, "")
+          .split(",")[0]
+          ?.trim() ?? "",
+    )
     .filter((p) => p.length > 0 && !changedFiles.some((c) => c.path === p));
 
   const openDiff = async (path: string): Promise<void> => {
@@ -227,11 +227,13 @@ export function ChangesPanel({
                 Select a conversation.
               </p>
             )}
-            {conversationId && changedFiles.length === 0 && livePaths.length === 0 && (
-              <p className="px-1.5 py-2 text-neutral-600">
-                No file changes in this conversation yet.
-              </p>
-            )}
+            {conversationId &&
+              changedFiles.length === 0 &&
+              livePaths.length === 0 && (
+                <p className="px-1.5 py-2 text-neutral-600">
+                  No file changes in this conversation yet.
+                </p>
+              )}
             {livePaths.map((p) => (
               <div
                 key={`live-${p}`}

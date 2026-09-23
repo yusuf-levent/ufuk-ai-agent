@@ -39,7 +39,11 @@ const type = async (el: Element | null, value: string): Promise<void> => {
   });
 };
 
-const key = async (el: Element, k: string, mods: Record<string, boolean> = {}): Promise<void> => {
+const key = async (
+  el: Element,
+  k: string,
+  mods: Record<string, boolean> = {},
+): Promise<void> => {
   await act(async () => {
     el.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -95,7 +99,12 @@ describe("chat store event folding", () => {
   });
 
   it("pairs tool_call and tool_result into steps with duration and output", () => {
-    emit({ type: "tool_call", id: "t1", name: "read_file", arguments: '{"path":"src/a.ts"}' });
+    emit({
+      type: "tool_call",
+      id: "t1",
+      name: "read_file",
+      arguments: '{"path":"src/a.ts"}',
+    });
     emit({
       type: "tool_result",
       id: "t1",
@@ -108,7 +117,7 @@ describe("chat store event folding", () => {
     expect(turn.steps).toHaveLength(1);
     expect(turn.steps[0]).toMatchObject({
       name: "read_file",
-      argsSummary: 'path: src/a.ts',
+      argsSummary: "path: src/a.ts",
       output: "file body",
       ok: true,
       durationMs: 42,
@@ -117,8 +126,18 @@ describe("chat store event folding", () => {
   });
 
   it("marks the last running step denied when an approval is denied", () => {
-    emit({ type: "tool_call", id: "t1", name: "write_file", arguments: '{"path":"a.ts"}' });
-    emit({ type: "approval_request", id: "ap_1", tool: "write_file", input: { path: "a.ts" } });
+    emit({
+      type: "tool_call",
+      id: "t1",
+      name: "write_file",
+      arguments: '{"path":"a.ts"}',
+    });
+    emit({
+      type: "approval_request",
+      id: "ap_1",
+      tool: "write_file",
+      input: { path: "a.ts" },
+    });
     expect(useChatStore.getState().turns["c_1"]!.approval?.id).toBe("ap_1");
     emit({ type: "approval_resolved", id: "ap_1", approved: false });
     const turn = useChatStore.getState().turns["c_1"]!;
@@ -128,10 +147,19 @@ describe("chat store event folding", () => {
 
   it("tracks usage and ends the run on done", () => {
     emit({ type: "usage", usage: { promptTokens: 10, completionTokens: 5 } });
-    emit({ type: "done", reason: "final", steps: 1, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 } });
+    emit({
+      type: "done",
+      reason: "final",
+      steps: 1,
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    });
     const turn = useChatStore.getState().turns["c_1"]!;
     expect(turn.running).toBe(false);
-    expect(turn.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+    expect(turn.usage).toEqual({
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+    });
   });
 
   it("stores the last message for retry (send wiring)", async () => {
@@ -152,7 +180,12 @@ describe("chat store event folding", () => {
 describe("LiveTurnView rendering", () => {
   it("renders streaming text through SafeMarkdown and the step timeline", async () => {
     emit({ type: "message_delta", text: "**bold** reply" });
-    emit({ type: "tool_call", id: "t1", name: "run_command", arguments: '{"command":"npm test"}' });
+    emit({
+      type: "tool_call",
+      id: "t1",
+      name: "run_command",
+      arguments: '{"command":"npm test"}',
+    });
     emit({
       type: "tool_result",
       id: "t1",
@@ -189,7 +222,10 @@ describe("LiveTurnView rendering", () => {
   });
 
   it("renders the per-turn token counter", async () => {
-    emit({ type: "usage", usage: { promptTokens: 1234, completionTokens: 56, totalTokens: 1290 } });
+    emit({
+      type: "usage",
+      usage: { promptTokens: 1234, completionTokens: 56, totalTokens: 1290 },
+    });
     await render(<LiveTurnView turn={useChatStore.getState().turns["c_1"]!} />);
     // number formatting is locale-dependent (1,234 or 1.234)
     expect(container.textContent).toMatch(/tokens: 1[.,]234 in \+ 56 out/);
@@ -197,7 +233,11 @@ describe("LiveTurnView rendering", () => {
   });
 
   it("shows the error state for failed turns", async () => {
-    emit({ type: "error", message: "Credit quota exhausted for this billing period.", fatal: true });
+    emit({
+      type: "error",
+      message: "Credit quota exhausted for this billing period.",
+      fatal: true,
+    });
     await render(<LiveTurnView turn={useChatStore.getState().turns["c_1"]!} />);
     expect(container.querySelector("[role=alert]")?.textContent).toContain(
       "Credit quota exhausted",
@@ -276,7 +316,10 @@ describe("ApprovalModal (M7)", () => {
         ?.click();
     });
     calls = invoke.mock.calls.filter(([c]) => c === "approvals:respond");
-    expect(calls.at(-1)?.[1]).toMatchObject({ approvalId: "ap_10", remember: true });
+    expect(calls.at(-1)?.[1]).toMatchObject({
+      approvalId: "ap_10",
+      remember: true,
+    });
 
     emit({
       type: "approval_request",
@@ -291,19 +334,33 @@ describe("ApprovalModal (M7)", () => {
         ?.click();
     });
     calls = invoke.mock.calls.filter(([c]) => c === "approvals:respond");
-    expect(calls.at(-1)?.[1]).toMatchObject({ approvalId: "ap_11", approved: false });
+    expect(calls.at(-1)?.[1]).toMatchObject({
+      approvalId: "ap_11",
+      approved: false,
+    });
   });
 
   it("keeps denied actions marked denied when the failure result arrives", () => {
-    emit({ type: "tool_call", id: "t1", name: "run_command", arguments: '{"command":"npm test"}' });
-    emit({ type: "approval_request", id: "ap_1", tool: "run_command", input: { command: "npm test" } });
+    emit({
+      type: "tool_call",
+      id: "t1",
+      name: "run_command",
+      arguments: '{"command":"npm test"}',
+    });
+    emit({
+      type: "approval_request",
+      id: "ap_1",
+      tool: "run_command",
+      input: { command: "npm test" },
+    });
     emit({ type: "approval_resolved", id: "ap_1", approved: false });
     emit({
       type: "tool_result",
       id: "t1",
       name: "run_command",
       ok: false,
-      output: "Permission denied for 'run_command': denied by user. Ask the user for an alternative.",
+      output:
+        "Permission denied for 'run_command': denied by user. Ask the user for an alternative.",
       durationMs: 3,
     });
     const step = useChatStore.getState().turns["c_1"]!.steps[0]!;
@@ -316,14 +373,18 @@ describe("Composer", () => {
   it("sends on Enter with the model from settings; Shift+Enter keeps editing", async () => {
     setProjectsRoot("/tmp/proj");
     await render(
-      <Composer root="/tmp/proj" conversationId="c_1" onTurnStarted={() => {}} />,
+      <Composer
+        root="/tmp/proj"
+        conversationId="c_1"
+        onTurnStarted={() => {}}
+      />,
     );
     const textarea = container.querySelector("textarea");
     await type(textarea, "fix the failing test");
     await key(textarea as Element, "Enter", { shift: true });
-    expect(
-      invoke.mock.calls.filter(([c]) => c === "chat:send"),
-    ).toHaveLength(0);
+    expect(invoke.mock.calls.filter(([c]) => c === "chat:send")).toHaveLength(
+      0,
+    );
     await key(textarea as Element, "Enter");
     const calls = invoke.mock.calls.filter(([c]) => c === "chat:send");
     expect(calls).toHaveLength(1);
@@ -339,7 +400,11 @@ describe("Composer", () => {
   it("disables the input while a run is active and offers Stop", async () => {
     emit({ type: "message_delta", text: "..." });
     await render(
-      <Composer root="/tmp/proj" conversationId="c_1" onTurnStarted={() => {}} />,
+      <Composer
+        root="/tmp/proj"
+        conversationId="c_1"
+        onTurnStarted={() => {}}
+      />,
     );
     expect(container.querySelector("textarea")?.disabled).toBe(true);
     const stopBtn = [...container.querySelectorAll("button")].find((b) =>

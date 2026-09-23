@@ -117,10 +117,10 @@ export function DiffViewer({
                       }
                     >
                       <span className="w-10 shrink-0 select-none pr-1 text-right text-neutral-600">
-                        {line.kind === "add" ? "" : line.oldLine ?? ""}
+                        {line.kind === "add" ? "" : (line.oldLine ?? "")}
                       </span>
                       <span className="w-10 shrink-0 select-none pr-1 text-right text-neutral-600">
-                        {line.kind === "del" ? "" : line.newLine ?? ""}
+                        {line.kind === "del" ? "" : (line.newLine ?? "")}
                       </span>
                       <span className="w-6 shrink-0 select-none">
                         {line.kind === "add"

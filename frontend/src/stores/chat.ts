@@ -54,7 +54,11 @@ export interface ChatStore {
     message: string,
     model?: string,
   ) => Promise<void>;
-  retry: (root: string, conversationId: string, model?: string) => Promise<void>;
+  retry: (
+    root: string,
+    conversationId: string,
+    model?: string,
+  ) => Promise<void>;
   stop: (conversationId: string) => void;
   respondApproval: (
     conversationId: string,

@@ -173,9 +173,11 @@ test("all navigation away from the app is blocked (M9)", async () => {
 test("IPC payloads are zod-validated in main (M9)", async () => {
   const win = await app.firstWindow();
   const bad = await win.evaluate(async () => {
-    const ufuk = (window as unknown as {
-      ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
-    }).ufuk;
+    const ufuk = (
+      window as unknown as {
+        ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
+      }
+    ).ufuk;
     // schema-violating payloads are rejected with invalid_request
     return (await ufuk.invoke("chat:send", {
       root: "",
@@ -187,9 +189,11 @@ test("IPC payloads are zod-validated in main (M9)", async () => {
   expect(bad.error?.code).toBe("invalid_request");
   // structurally wrong payloads too
   const wrong = await win.evaluate(async () => {
-    const ufuk = (window as unknown as {
-      ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
-    }).ufuk;
+    const ufuk = (
+      window as unknown as {
+        ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
+      }
+    ).ufuk;
     return (await ufuk.invoke("settings:set", {
       theme: "neon",
       permissionMode: "allow-everything",

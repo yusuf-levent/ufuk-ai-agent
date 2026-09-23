@@ -9,8 +9,21 @@
  * The test account is created via the API (admin assigns the pro plan).
  * Screenshots are saved to docs/screenshots.
  */
-import { test, expect, _electron, type ElectronApplication, type Page } from "@playwright/test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  test,
+  expect,
+  _electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -166,14 +179,18 @@ test("full scenario: login -> fix the failing test -> diff -> undo", async () =>
   await win.getByRole("button", { name: "Continue" }).click();
 
   // 2. login
-  await expect(win.getByRole("button", { name: "Log in", exact: true })).toBeVisible();
+  await expect(
+    win.getByRole("button", { name: "Log in", exact: true }),
+  ).toBeVisible();
   await shot("02-login.png");
   await win.getByPlaceholder("you@example.com").fill(USER_EMAIL);
   await win.locator('input[type="password"]').fill(USER_PASSWORD);
   await win.getByRole("button", { name: "Log in", exact: true }).click();
 
   // 3. main shell -> add the sample project (picker stubbed)
-  await expect(win.getByRole("button", { name: "+ Add" })).toBeVisible({ timeout: 30_000 });
+  await expect(win.getByRole("button", { name: "+ Add" })).toBeVisible({
+    timeout: 30_000,
+  });
   await shot("03-main-shell.png");
   await win.getByRole("button", { name: "+ Add" }).click();
   await expect(
@@ -203,7 +220,9 @@ test("full scenario: login -> fix the failing test -> diff -> undo", async () =>
 
   // 8. see the diff (changed-files panel)
   await win.getByRole("button", { name: "Changed files" }).click();
-  const fileButton = win.getByTitle("Show diff against the pre-change snapshot");
+  const fileButton = win.getByTitle(
+    "Show diff against the pre-change snapshot",
+  );
   await expect(fileButton).toBeVisible({ timeout: 15_000 });
   await fileButton.click();
   const diffDialog = win.getByRole("dialog", { name: "Diff viewer" });
