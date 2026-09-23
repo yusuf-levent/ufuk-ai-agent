@@ -7,16 +7,20 @@
 import { ipcMain, shell, dialog, BrowserWindow } from "electron";
 import { z } from "zod";
 import {
+  ApprovalPreviewRequestSchema,
   ApprovalRespondRequestSchema,
   ChatSendRequestSchema,
   ChatStopRequestSchema,
+  CheckpointRevertRequestSchema,
   ConversationIdRequestSchema,
   ConversationRenameRequestSchema,
+  DiffRequestSchema,
   LoginRequestSchema,
   OpenExternalRequestSchema,
   ProjectPathRequestSchema,
   ProjectRootRequestSchema,
   RegisterRequestSchema,
+  SetPermissionModeRequestSchema,
   SettingsPatchSchema,
   type IpcResult,
   type Settings,
@@ -33,6 +37,8 @@ import {
 } from "./gateway";
 import { ProjectManager, ProjectValidationError } from "./projects";
 import type { AgentRuntime } from "./agent-runtime";
+import { diffLines } from "./diff";
+import { readFile } from "node:fs/promises";
 
 export interface IpcDeps {
   win: () => BrowserWindow | null;
@@ -350,4 +356,172 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       };
     },
   );
+
+  register(
+    INVOKE_CHANNELS.approvalsPreview,
+    ApprovalPreviewRequestSchema,
+    async (_e, payload) => {
+      const { conversationId, approvalId } =
+        ApprovalPreviewRequestSchema.parse(payload);
+      return {
+        ok: true,
+        value: deps.runtime.approvalPreview(conversationId, approvalId),
+      };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // permission modes, checkpoints, diffs, changed files (Milestone 7)
+  // -----------------------------------------------------------------------
+
+  register(
+    INVOKE_CHANNELS.projectsSetPermissionMode,
+    SetPermissionModeRequestSchema,
+    async (_e, payload) => {
+      const { root, mode } = SetPermissionModeRequestSchema.parse(payload);
+      const info = deps.projects.setPermissionMode(root, mode);
+      if (!info) {
+        return {
+          ok: false,
+          error: { message: "Unknown project.", code: "not_a_directory" },
+        };
+      }
+      return { ok: true, value: info };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.checkpointsList,
+    ProjectRootRequestSchema,
+    async (_e, payload) => {
+      const { root } = ProjectRootRequestSchema.parse(payload);
+      const store = await deps.projects.checkpoints(root);
+      return { ok: true, value: await store.list(50) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.checkpointsUndo,
+    ProjectRootRequestSchema,
+    async (_e, payload) => {
+      const { root } = ProjectRootRequestSchema.parse(payload);
+      const store = await deps.projects.checkpoints(root);
+      return { ok: true, value: await store.undoLast() };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.checkpointsRevert,
+    CheckpointRevertRequestSchema,
+    async (_e, payload) => {
+      const { root, id } = CheckpointRevertRequestSchema.parse(payload);
+      const store = await deps.projects.checkpoints(root);
+      return { ok: true, value: await store.revertTo(id) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.checkpointsDiff,
+    DiffRequestSchema,
+    async (_e, payload) => {
+      const { root, path: file, checkpointId } =
+        DiffRequestSchema.parse(payload);
+      const workspace = deps.projects.requireKnownRoot(root);
+      const store = await deps.projects.checkpoints(root);
+
+      // resolve + confine the requested path
+      let abs: string;
+      try {
+        abs = workspace.resolve(file);
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            message: err instanceof Error ? err.message : "unsafe path",
+            code: "invalid_request",
+          },
+        };
+      }
+
+      // find the newest checkpoint that snapshotted this file (or use the
+      // explicitly requested one)
+      let cpId = checkpointId;
+      if (!cpId) {
+        const list = await store.list(50);
+        const found = list.find((c) =>
+          c.files.some((f) => workspaceRelativeEq(workspace, f.path, file)),
+        );
+        cpId = found?.id;
+      }
+      let oldContent: string | null = null;
+      if (cpId) {
+        oldContent = await store.readFile(cpId, file);
+      }
+      let newContent = "";
+      try {
+        newContent = await readFile(abs, "utf8");
+      } catch {
+        newContent = ""; // file deleted since
+      }
+      const result = diffLines(oldContent ?? "", newContent);
+      return {
+        ok: true,
+        value: {
+          path: workspace.relative(abs),
+          snapshotMissing: oldContent === null,
+          identical: result.identical,
+          oldLines: result.oldLines,
+          newLines: result.newLines,
+          hunks: result.hunks,
+        },
+      };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.conversationsChangedFiles,
+    ConversationIdRequestSchema,
+    async (_e, payload) => {
+      const { root, id } = ConversationIdRequestSchema.parse(payload);
+      const workspace = deps.projects.requireKnownRoot(root);
+      const opened = await deps.projects.store(root);
+      const records = await opened.store.listToolCalls(id);
+      // unique paths from edit tools, newest first
+      const out: {
+        path: string;
+        tool: string;
+        ok: boolean;
+        at: string;
+      }[] = [];
+      const seen = new Set<string>();
+      for (const r of [...records].reverse()) {
+        if (r.tool !== "write_file" && r.tool !== "edit_file") continue;
+        let rel: string | undefined;
+        try {
+          const parsed = JSON.parse(r.argsJson) as { path?: unknown };
+          if (typeof parsed["path"] === "string") {
+            rel = workspace.relative(workspace.resolve(parsed["path"]));
+          }
+        } catch {
+          continue;
+        }
+        if (!rel || seen.has(rel)) continue;
+        seen.add(rel);
+        out.push({ path: rel, tool: r.tool, ok: r.ok, at: "" });
+      }
+      return { ok: true, value: out };
+    },
+  );
+}
+
+function workspaceRelativeEq(
+  workspace: { relative(p: string): string },
+  checkpointPath: string,
+  file: string,
+): boolean {
+  try {
+    return workspace.relative(checkpointPath) === workspace.relative(file);
+  } catch {
+    return false;
+  }
 }

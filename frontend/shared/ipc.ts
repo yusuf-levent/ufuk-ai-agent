@@ -116,6 +116,8 @@ export const ProjectInfoSchema = z.object({
   name: z.string().min(1),
   addedAt: z.string().min(1),
   lastOpenedAt: z.string().min(1),
+  /** Per-project permission override ('ask' | 'auto-edits'). */
+  permissionMode: z.enum(["ask", "auto-edits"]).optional(),
   /** Informational: the UI warns when a project is not a git repo. */
   isGitRepo: z.boolean(),
 });
@@ -214,6 +216,90 @@ export const ApprovalRespondRequestSchema = z.object({
 });
 export type ApprovalRespondRequest = z.infer<typeof ApprovalRespondRequestSchema>;
 
+// ---------------------------------------------------------------------------
+// approvals, permission modes, checkpoints, diffs (Milestone 7)
+// ---------------------------------------------------------------------------
+
+export const ApprovalPreviewRequestSchema = z.object({
+  conversationId: z.string().min(1),
+  approvalId: z.string().min(1),
+});
+export type ApprovalPreviewRequest = z.infer<typeof ApprovalPreviewRequestSchema>;
+
+export const ApprovalPreviewSchema = z.object({
+  tool: z.string().min(1),
+  pattern: z.string().optional(),
+});
+export type ApprovalPreview = z.infer<typeof ApprovalPreviewSchema>;
+
+export const SetPermissionModeRequestSchema = z.object({
+  root: z.string().min(1),
+  mode: z.enum(["ask", "auto-edits"]),
+});
+export type SetPermissionModeRequest = z.infer<
+  typeof SetPermissionModeRequestSchema
+>;
+
+export const CheckpointInfoSchema = z.object({
+  id: z.string().min(1),
+  createdAt: z.string().min(1),
+  tool: z.string(),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      existedBefore: z.boolean(),
+    }),
+  ),
+});
+export type CheckpointInfo = z.infer<typeof CheckpointInfoSchema>;
+
+export const CheckpointRevertRequestSchema = z.object({
+  root: z.string().min(1),
+  id: z.string().min(1),
+});
+export type CheckpointRevertRequest = z.infer<typeof CheckpointRevertRequestSchema>;
+
+export const DiffRequestSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(1),
+  checkpointId: z.string().min(1).optional(),
+});
+export type DiffRequest = z.infer<typeof DiffRequestSchema>;
+
+export const DiffLineSchema = z.object({
+  kind: z.enum(["add", "del", "ctx"]),
+  text: z.string(),
+  oldLine: z.number().nullable(),
+  newLine: z.number().nullable(),
+});
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+
+export const DiffHunkSchema = z.object({
+  oldStart: z.number(),
+  newStart: z.number(),
+  lines: z.array(DiffLineSchema),
+});
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+
+export const DiffResponseSchema = z.object({
+  path: z.string(),
+  /** true when no checkpoint retains the pre-change content */
+  snapshotMissing: z.boolean(),
+  identical: z.boolean(),
+  oldLines: z.number(),
+  newLines: z.number(),
+  hunks: z.array(DiffHunkSchema),
+});
+export type DiffResponse = z.infer<typeof DiffResponseSchema>;
+
+export const ChangedFileSchema = z.object({
+  path: z.string(),
+  tool: z.string(),
+  ok: z.boolean(),
+  at: z.string(),
+});
+export type ChangedFile = z.infer<typeof ChangedFileSchema>;
+
 export const AppVersionResponseSchema = z.object({
   version: z.string(),
   electron: z.string(),
@@ -274,6 +360,31 @@ export interface InvokeMap {
   "approvals:respond": {
     request: ApprovalRespondRequest;
     response: boolean;
+  };
+  "approvals:preview": {
+    request: ApprovalPreviewRequest;
+    response: ApprovalPreview | null;
+  };
+  "projects:set-permission-mode": {
+    request: SetPermissionModeRequest;
+    response: ProjectInfo;
+  };
+  "checkpoints:list": {
+    request: ProjectRootRequest;
+    response: CheckpointInfo[];
+  };
+  "checkpoints:undo": {
+    request: ProjectRootRequest;
+    response: CheckpointInfo | null;
+  };
+  "checkpoints:revert": {
+    request: CheckpointRevertRequest;
+    response: CheckpointInfo | null;
+  };
+  "checkpoints:diff": { request: DiffRequest; response: DiffResponse };
+  "conversations:changed-files": {
+    request: ConversationIdRequest;
+    response: ChangedFile[];
   };
 }
 

@@ -11,6 +11,8 @@ import type { EventChannel } from "@shared/channels";
 import { INVOKE_CHANNELS } from "@shared/channels";
 import type {
   AppVersionResponse,
+  CheckpointInfo,
+  DiffResponse,
   LoginRequest,
   PrivacyInfo,
   ProjectInfo,
@@ -125,6 +127,49 @@ export const api = {
     unwrap(bridge().invoke(INVOKE_CHANNELS.approvalsRespond, req)) as Promise<
       boolean
     >,
+  approvalPreview: (req: {
+    conversationId: string;
+    approvalId: string;
+  }) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.approvalsPreview, req),
+    ) as Promise<{ tool: string; pattern?: string } | null>,
+  setPermissionMode: (root: string, mode: "ask" | "auto-edits") =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.projectsSetPermissionMode, {
+        root,
+        mode,
+      }),
+    ) as Promise<ProjectInfo>,
+  listCheckpoints: (root: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.checkpointsList, { root }),
+    ) as Promise<CheckpointInfo[]>,
+  undoCheckpoint: (root: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.checkpointsUndo, { root }),
+    ) as Promise<CheckpointInfo | null>,
+  revertCheckpoint: (root: string, id: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.checkpointsRevert, { root, id }),
+    ) as Promise<CheckpointInfo | null>,
+  diffFile: (req: {
+    root: string;
+    path: string;
+    checkpointId?: string;
+  }) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.checkpointsDiff, req),
+    ) as Promise<DiffResponse>,
+  changedFiles: (root: string, id: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsChangedFiles, {
+        root,
+        id,
+      }),
+    ) as Promise<
+      { path: string; tool: string; ok: boolean; at: string }[]
+    >,
   subscribe: (<C extends EventChannel>(
     channel: C,
     listener: (payload: EventMap[C]) => void,
@@ -139,4 +184,6 @@ export type {
   ProjectInfo,
   ConversationSummary,
   ConversationDetail,
+  CheckpointInfo,
+  DiffResponse,
 };

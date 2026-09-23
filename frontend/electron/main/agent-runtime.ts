@@ -147,6 +147,21 @@ export class AgentRuntime {
     return true;
   }
 
+  /**
+   * Preview of the "always allow" rule for the pending approval (shown in
+   * the modal before the user decides). Returns null when there is no
+   * matching pending approval.
+   */
+  approvalPreview(
+    conversationId: string,
+    approvalId: string,
+  ): { tool: string; pattern?: string } | null {
+    const run = this.runs.get(conversationId);
+    if (!run || !run.pending || run.pending.id !== approvalId) return null;
+    const rule = deriveRememberRule(run.pending.request);
+    return { tool: rule.tool, pattern: rule.pattern };
+  }
+
   private emit(conversationId: string, event: AgentEvent): void {
     const win = this.deps.win();
     if (win && !win.isDestroyed()) {
@@ -225,8 +240,23 @@ export class AgentRuntime {
       });
     };
 
+    // per-project permission mode: 'auto-edits' allows file edits inside
+    // the workspace (deny floors still apply; commands still ask);
+    // there is NO allow-everything mode
+    const mode = projects.effectivePermissionMode(
+      run.root,
+      settings.load().permissionMode,
+    );
+    const rules =
+      mode === "auto-edits"
+        ? [
+            { tool: "write_file", effect: "allow" as const },
+            { tool: "edit_file", effect: "allow" as const },
+          ]
+        : [];
+
     const permissionEngine = new PermissionEngine(
-      {},
+      { rules },
       { workspace, handler, rememberedStore },
     );
 

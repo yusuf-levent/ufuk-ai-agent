@@ -1,5 +1,56 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 7: Approvals, diffs, undo
+
+### What was done
+
+**evren-agent (nested repo, commit 6093fe1):**
+- `ConversationStore.listToolCalls(id)` — per-conversation tool call records
+  (SQLite + JSONL) → powers the changed-files list.
+- `ShadowCheckpointStore.readFile(checkpointId, file)` — reads the
+  pre-change snapshot content for the diff viewer (null for consumed
+  checkpoints / files that did not exist before).
+
+**frontend:**
+- **Approval modal** (replaces the M6 bar): exact command or file path,
+  working directory, display-only risk category (the permission engine
+  remains the enforcer; denylist/dangerous floors apply regardless of the
+  decision), the model's stated reason (assistant text streamed before the
+  request) and the "always allow" pattern fetched from main
+  (`approvals:preview` → the same `deriveRememberRule` the engine persists —
+  single source of truth). Buttons: Allow once / Always allow (this
+  project, pattern shown) / Deny.
+- **Per-project permission mode**: stored in projects.json, falls back to
+  the global setting; `auto-edits` = engine rules allowing write_file/
+  edit_file (deny floors intact, commands still ask, no allow-everything
+  mode). Switch lives in the new right panel.
+- **Diff viewer**: LCS line diff computed in main
+  (`electron/main/diff.ts`, context hunks, pathological-input full-replace
+  cap), rendered inline or side-by-side, comparing the current file
+  against its newest checkpoint snapshot (or an explicit checkpoint);
+  `snapshotMissing` badge when the snapshot was consumed by undo/revert.
+- **Changed files panel**: per-conversation list from recorded tool calls
+  + live changes from the running turn; click opens the diff.
+- **Checkpoint history**: newest first with per-file entries, Undo last
+  change, Revert to checkpoint (both with confirmation), notes on results.
+- Denied actions now STAY marked denied in the timeline even when the
+  loop's failed `tool_result` arrives ("Permission denied …").
+- 7 new IPC channels (approvals:preview, projects:set-permission-mode,
+  checkpoints:list/undo/revert/diff, conversations:changed-files), all
+  zod-validated and documented.
+
+### Test counts
+
+- evren-agent: **237 passed** (agent-core 76, local-runner 161; +2)
+- frontend: **103 unit** (13 files; +11) + **9 e2e**
+- evren-backend: 115 (untouched)
+- lint + typecheck clean everywhere
+
+### Commits
+
+- evren-agent: `feat(store+checkpoints): listToolCalls + checkpoint readFile (desktop M7)`
+- outer repo: M7 approvals/diffs/undo + gitlink update
+
 ## 2026-09-23 — Milestone 6: Chat and agent view
 
 ### What was done

@@ -2,12 +2,12 @@
  * Composer (bottom bar): model selector (tier alias) + message input.
  * Enter sends, Shift+Enter inserts a newline; the Stop button aborts the
  * active run; Retry re-sends the last message after a failure. Esc (global)
- * and Ctrl+N (global) are handled in MainShell.
+ * and Ctrl+N (global) are handled in MainShell. Approval prompts render as
+ * the modal hosted by MainShell (Milestone 7).
  */
 import { useState } from "react";
 import { useAppStore } from "../stores/app";
 import { useChatStore } from "../stores/chat";
-import { ApprovalBar } from "./ApprovalBar";
 
 const TIERS = ["fast", "balanced", "strong"] as const;
 
@@ -69,7 +69,6 @@ export function Composer({
             Enter to send · Shift+Enter for a new line
           </span>
         </div>
-        <ApprovalBar conversationId={conversationId} />
         <div className="flex items-end gap-2">
           <textarea
             value={input}

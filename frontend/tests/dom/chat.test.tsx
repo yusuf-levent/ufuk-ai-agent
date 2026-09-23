@@ -11,7 +11,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installBridge } from "./helpers/mock-bridge";
 import { useChatStore } from "../../src/stores/chat";
 import { Transcript, LiveTurnView } from "../../src/components/Transcript";
-import { ApprovalBar } from "../../src/components/ApprovalBar";
+import { ApprovalModal } from "../../src/components/ApprovalModal";
 import { Composer } from "../../src/components/Composer";
 
 (globalThis as Record<string, unknown>)["IS_REACT_ACT_ENVIRONMENT"] = true;
@@ -219,12 +219,32 @@ describe("LiveTurnView rendering", () => {
   });
 });
 
-describe("ApprovalBar", () => {
-  it("answers approvals through the bridge (allow once / always / deny)", async () => {
-    emit({ type: "approval_request", id: "ap_9", tool: "run_command", input: { command: "npm test" } });
-    await render(<ApprovalBar conversationId="c_1" />);
-    expect(container.textContent).toContain("run_command");
+describe("ApprovalModal (M7)", () => {
+  it("shows the exact command, cwd, risk and reason; answers through the bridge", async () => {
+    emit({ type: "message_delta", text: "I will run the tests to verify." });
+    emit({
+      type: "approval_request",
+      id: "ap_9",
+      tool: "run_command",
+      input: { command: "npm test" },
+    });
+    await render(
+      <ApprovalModal
+        conversationId="c_1"
+        workspaceRoot="/tmp/proj"
+        modelReason="I will run the tests to verify."
+      />,
+    );
+    // exact command, working directory, risk category, model reason
     expect(container.textContent).toContain("npm test");
+    expect(container.textContent).toContain("/tmp/proj");
+    expect(container.textContent).toContain("Command execution");
+    expect(container.textContent).toContain("I will run the tests to verify.");
+    // always-allow pattern preview is fetched from main
+    await act(async () => {});
+    expect(
+      invoke.mock.calls.filter(([c]) => c === "approvals:preview").length,
+    ).toBeGreaterThanOrEqual(1);
 
     await act(async () => {
       [...container.querySelectorAll("button")]
@@ -238,10 +258,18 @@ describe("ApprovalBar", () => {
       approved: true,
       remember: false,
     });
-    // approval cleared from the turn
     expect(useChatStore.getState().turns["c_1"]?.approval).toBeNull();
 
-    emit({ type: "approval_request", id: "ap_10", tool: "write_file", input: { path: "a.ts" } });
+    emit({
+      type: "approval_request",
+      id: "ap_10",
+      tool: "write_file",
+      input: { path: "src/a.ts", content: "x" },
+    });
+    await act(async () => {});
+    // file edits show the path and the file-edit risk category
+    expect(container.textContent).toContain("src/a.ts");
+    expect(container.textContent).toContain("File edit");
     await act(async () => {
       [...container.querySelectorAll("button")]
         .find((b) => b.textContent === "Always allow (this project)")
@@ -250,7 +278,13 @@ describe("ApprovalBar", () => {
     calls = invoke.mock.calls.filter(([c]) => c === "approvals:respond");
     expect(calls.at(-1)?.[1]).toMatchObject({ approvalId: "ap_10", remember: true });
 
-    emit({ type: "approval_request", id: "ap_11", tool: "run_command", input: { command: "del /s" } });
+    emit({
+      type: "approval_request",
+      id: "ap_11",
+      tool: "run_command",
+      input: { command: "del /s" },
+    });
+    await act(async () => {});
     await act(async () => {
       [...container.querySelectorAll("button")]
         .find((b) => b.textContent === "Deny")
@@ -258,6 +292,23 @@ describe("ApprovalBar", () => {
     });
     calls = invoke.mock.calls.filter(([c]) => c === "approvals:respond");
     expect(calls.at(-1)?.[1]).toMatchObject({ approvalId: "ap_11", approved: false });
+  });
+
+  it("keeps denied actions marked denied when the failure result arrives", () => {
+    emit({ type: "tool_call", id: "t1", name: "run_command", arguments: '{"command":"npm test"}' });
+    emit({ type: "approval_request", id: "ap_1", tool: "run_command", input: { command: "npm test" } });
+    emit({ type: "approval_resolved", id: "ap_1", approved: false });
+    emit({
+      type: "tool_result",
+      id: "t1",
+      name: "run_command",
+      ok: false,
+      output: "Permission denied for 'run_command': denied by user. Ask the user for an alternative.",
+      durationMs: 3,
+    });
+    const step = useChatStore.getState().turns["c_1"]!.steps[0]!;
+    expect(step.status).toBe("denied");
+    expect(step.ok).toBe(false);
   });
 });
 

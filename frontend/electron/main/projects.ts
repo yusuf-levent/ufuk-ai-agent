@@ -15,10 +15,14 @@ import * as path from "node:path";
 import { z } from "zod";
 import {
   openConversationStore,
+  ShadowCheckpointStore,
   WorkspaceRoot,
   type OpenedStore,
 } from "@evren/local-runner";
 import type { ConversationSummary } from "@evren/agent-core";
+
+/** Per-project permission mode ('ask' | 'auto-edits'). */
+export type PermissionMode = "ask" | "auto-edits";
 
 /** Serialized recent-projects entry (userData/projects.json). */
 export interface ProjectEntry {
@@ -26,6 +30,8 @@ export interface ProjectEntry {
   name: string;
   addedAt: string;
   lastOpenedAt: string;
+  /** Per-project override; undefined = use the global setting. */
+  permissionMode?: PermissionMode;
 }
 
 /** What the renderer sees. */
@@ -49,6 +55,7 @@ const ProjectFileSchema = z.object({
       name: z.string().min(1),
       addedAt: z.string().min(1),
       lastOpenedAt: z.string().min(1),
+      permissionMode: z.enum(["ask", "auto-edits"]).optional(),
     }),
   ),
 });
@@ -58,6 +65,7 @@ export class ProjectManager {
   private readonly baseDir: string;
   private entries: ProjectEntry[] | null = null;
   private readonly stores = new Map<string, Promise<OpenedStore>>();
+  private readonly checkpointStores = new Map<string, ShadowCheckpointStore>();
 
   constructor(
     private readonly userDataDir: string,
@@ -117,6 +125,7 @@ export class ProjectManager {
       name: path.basename(root.root) || root.root,
       addedAt: existing?.addedAt ?? now,
       lastOpenedAt: now,
+      permissionMode: existing?.permissionMode,
     };
     const next = existing
       ? entries.map((e) => (e.root === entry.root ? entry : e))
@@ -140,6 +149,44 @@ export class ProjectManager {
     if (!entry) return;
     entry.lastOpenedAt = new Date().toISOString();
     this.save(entries);
+  }
+
+  /** Set the per-project permission mode (ask / auto-edits). */
+  setPermissionMode(root: string, mode: PermissionMode): ProjectInfo | null {
+    const normalized = path.resolve(root);
+    const entries = this.load();
+    const entry = entries.find((e) => e.root === normalized);
+    if (!entry) return null;
+    entry.permissionMode = mode;
+    this.save(entries);
+    return { ...entry, isGitRepo: this.probeGit(normalized) };
+  }
+
+  /** The per-project mode, falling back to the global setting. */
+  effectivePermissionMode(
+    root: string,
+    globalMode: PermissionMode,
+  ): PermissionMode {
+    const normalized = path.resolve(root);
+    return (
+      this.load().find((e) => e.root === normalized)?.permissionMode ??
+      globalMode
+    );
+  }
+
+  /** The checkpoint store for a project (same dir the agent runtime uses). */
+  async checkpoints(root: string): Promise<ShadowCheckpointStore> {
+    const workspace = this.requireKnownRoot(root);
+    let store = this.checkpointStores.get(workspace.root);
+    if (!store) {
+      const opened = await this.store(root);
+      store = new ShadowCheckpointStore(
+        workspace,
+        path.join(opened.dbDir, "checkpoints"),
+      );
+      this.checkpointStores.set(workspace.root, store);
+    }
+    return store;
   }
 
   /** The conversation store for a known project root (cached). */

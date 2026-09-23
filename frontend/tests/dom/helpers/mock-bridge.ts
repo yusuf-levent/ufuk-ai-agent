@@ -97,6 +97,39 @@ export function installBridge(overrides: BridgeOverrides = {}): {
         case "conversations:rename":
         case "conversations:delete":
           return { ok: true, value: true };
+        case "approvals:preview":
+          return { ok: true, value: { tool: "run_command", pattern: "npm test" } };
+        case "projects:set-permission-mode":
+          return { ok: true, value: defaultProjects[0] };
+        case "checkpoints:list":
+          return { ok: true, value: [] };
+        case "checkpoints:undo":
+        case "checkpoints:revert":
+          return { ok: true, value: null };
+        case "checkpoints:diff":
+          return {
+            ok: true,
+            value: {
+              path: "a.ts",
+              snapshotMissing: false,
+              identical: false,
+              oldLines: 2,
+              newLines: 2,
+              hunks: [
+                {
+                  oldStart: 1,
+                  newStart: 1,
+                  lines: [
+                    { kind: "ctx", text: "hello", oldLine: 1, newLine: 1 },
+                    { kind: "del", text: "old", oldLine: 2, newLine: null },
+                    { kind: "add", text: "new", oldLine: null, newLine: 2 },
+                  ],
+                },
+              ],
+            },
+          };
+        case "conversations:changed-files":
+          return { ok: true, value: [] };
         default:
           return { ok: false, error: { message: `no handler for ${channel}` } };
       }

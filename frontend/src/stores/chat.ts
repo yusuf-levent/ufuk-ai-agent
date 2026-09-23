@@ -220,7 +220,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
                         : event.output,
                     ok: event.ok,
                     durationMs: event.durationMs,
-                    status: "done",
+                    // a denied action stays marked denied even though the
+                    // loop reports it as a failed tool_result
+                    status:
+                      s.status === "denied" ||
+                      event.output.startsWith("Permission denied")
+                        ? "denied"
+                        : "done",
                   }
                 : s,
             ),

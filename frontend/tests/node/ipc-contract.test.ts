@@ -51,14 +51,21 @@ describe("channel allowlists", () => {
       "projects:add",
       "projects:remove",
       "projects:pick-folder",
+      "projects:set-permission-mode",
       "conversations:list",
       "conversations:create",
       "conversations:load",
       "conversations:rename",
       "conversations:delete",
+      "conversations:changed-files",
       "chat:send",
       "chat:stop",
       "approvals:respond",
+      "approvals:preview",
+      "checkpoints:list",
+      "checkpoints:undo",
+      "checkpoints:revert",
+      "checkpoints:diff",
     ];
     const invokeValues = Object.values(INVOKE_CHANNELS);
     // every InvokeMap key is a registered channel...

@@ -100,6 +100,38 @@ export const INVOKE_CHANNELS = {
    * { conversationId, approvalId, approved, remember }. Response: boolean.
    */
   approvalsRespond: "approvals:respond",
+  /**
+   * Preview the "always allow" rule for a pending approval (shown in the
+   * modal). Request: { conversationId, approvalId }. Response:
+   * { tool, pattern? } | null.
+   */
+  approvalsPreview: "approvals:preview",
+  /**
+   * Set the per-project permission mode (ask / auto-edits). Request:
+   * { root, mode }. Response: ProjectInfo.
+   */
+  projectsSetPermissionMode: "projects:set-permission-mode",
+  /**
+   * Checkpoints of a project (newest first). Request: { root }.
+   * Response: CheckpointInfo[].
+   */
+  checkpointsList: "checkpoints:list",
+  /** Undo the newest checkpoint. Request: { root }. Response: CheckpointInfo | null. */
+  checkpointsUndo: "checkpoints:undo",
+  /** Revert to a checkpoint (consumes it and everything newer). Request: { root, id }. */
+  checkpointsRevert: "checkpoints:revert",
+  /**
+   * Diff a file against its newest checkpoint snapshot (pre-change
+   * content). Request: { root, path, checkpointId? }. Response:
+   * DiffResponse (current content + hunks; snapshotMissing flag when no
+   * checkpoint retains the file).
+   */
+  checkpointsDiff: "checkpoints:diff",
+  /**
+   * Files changed by a conversation (from its recorded tool calls).
+   * Request: { root, id }. Response: ChangedFile[].
+   */
+  conversationsChangedFiles: "conversations:changed-files",
 } as const;
 
 /** Main -> renderer, push events (payload schemas in shared/ipc.ts). */

@@ -12,6 +12,8 @@ import { useChatStore } from "../stores/chat";
 import { Sidebar } from "../components/Sidebar";
 import { Transcript } from "../components/Transcript";
 import { Composer } from "../components/Composer";
+import { ApprovalModal } from "../components/ApprovalModal";
+import { ChangesPanel } from "../components/ChangesPanel";
 
 export function MainShell({
   onOpenSettings,
@@ -188,6 +190,25 @@ export function MainShell({
           </footer>
         )}
       </div>
+
+      {/* right panel: changed files + checkpoints (M7) */}
+      {activeProject && (
+        <ChangesPanel
+          project={activeProject}
+          conversationId={activeConversationId}
+          liveSteps={turn?.steps ?? []}
+          onConversationDeleted={() => void reloadActive()}
+        />
+      )}
+
+      {/* approval modal (M7) */}
+      {activeRoot && activeConversationId && (
+        <ApprovalModal
+          conversationId={activeConversationId}
+          workspaceRoot={activeRoot}
+          modelReason={turn?.text ?? ""}
+        />
+      )}
     </div>
   );
 }
