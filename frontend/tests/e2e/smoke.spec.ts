@@ -5,13 +5,20 @@
  * every run. When the gateway is reachable the gate is acknowledged through
  * the UI; otherwise the retryable error state is asserted.
  */
-import { test, expect, _electron, type ElectronApplication } from "@playwright/test";
+import {
+  test,
+  expect,
+  _electron,
+  type ElectronApplication,
+} from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-const mainJs = fileURLToPath(new URL("../../out/main/index.js", import.meta.url));
+const mainJs = fileURLToPath(
+  new URL("../../out/main/index.js", import.meta.url),
+);
 
 let app: ElectronApplication;
 let dataDir: string;
@@ -22,9 +29,10 @@ test.beforeAll(async () => {
     args: [mainJs],
     env: {
       ...process.env,
-      // isolate userData (fresh first-run privacy state) per test run
-      APPDATA: dataDir,
-      LOCALAPPDATA: path.join(dataDir, "local"),
+      // isolate userData (fresh first-run privacy state) per test run;
+      // Electron resolves appData via the Windows known-folder API, so
+      // only an explicit setPath (UFUK_USER_DATA_DIR) works
+      UFUK_USER_DATA_DIR: dataDir,
     },
   });
 });
@@ -74,12 +82,16 @@ test("renderer hardening is active", async () => {
   // sandbox: no node globals leak into the renderer
   const hasNode = await win.evaluate(
     () =>
-      typeof (window as unknown as Record<string, unknown>)["require"] !== "undefined" ||
-      typeof (window as unknown as Record<string, unknown>)["process"] !== "undefined",
+      typeof (window as unknown as Record<string, unknown>)["require"] !==
+        "undefined" ||
+      typeof (window as unknown as Record<string, unknown>)["process"] !==
+        "undefined",
   );
   expect(hasNode).toBe(false);
   // the preload bridge is the only exposed surface
-  const bridge = await win.evaluate(() => typeof (window as unknown as Record<string, unknown>)["ufuk"]);
+  const bridge = await win.evaluate(
+    () => typeof (window as unknown as Record<string, unknown>)["ufuk"],
+  );
   expect(bridge).toBe("object");
 });
 
@@ -112,7 +124,9 @@ test("BrowserWindow webPreferences match the security baseline", async () => {
 test("CSP meta tag is present and strict", async () => {
   const win = await app.firstWindow();
   const csp = await win.evaluate(() => {
-    const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+    const meta = document.querySelector(
+      'meta[http-equiv="Content-Security-Policy"]',
+    );
     return meta?.getAttribute("content") ?? null;
   });
   expect(csp).not.toBeNull();
@@ -137,9 +151,11 @@ test("window.open is blocked by the main process", async () => {
 test("IPC round-trip: version channel works through the bridge", async () => {
   const win = await app.firstWindow();
   const result = await win.evaluate(async () => {
-    const ufuk = (window as unknown as {
-      ufuk: { invoke: (c: string) => Promise<unknown> };
-    }).ufuk;
+    const ufuk = (
+      window as unknown as {
+        ufuk: { invoke: (c: string) => Promise<unknown> };
+      }
+    ).ufuk;
     return (await ufuk.invoke("app:version")) as {
       ok: boolean;
       value: { version: string; electron: string };
@@ -152,9 +168,11 @@ test("IPC round-trip: version channel works through the bridge", async () => {
 test("IPC channel allowlist: unknown channels are rejected by the preload", async () => {
   const win = await app.firstWindow();
   const rejected = await win.evaluate(async () => {
-    const ufuk = (window as unknown as {
-      ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
-    }).ufuk;
+    const ufuk = (
+      window as unknown as {
+        ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
+      }
+    ).ufuk;
     try {
       await ufuk.invoke("evil:channel", { anything: true });
       return false;
@@ -163,4 +181,83 @@ test("IPC channel allowlist: unknown channels are rejected by the preload", asyn
     }
   });
   expect(rejected).toBe(true);
+});
+
+test("projects + conversations work end to end through the real main process", async () => {
+  const win = await app.firstWindow();
+  const projectDir = mkdtempSync(path.join(tmpdir(), "ufuk-e2e-proj-"));
+  const result = await win.evaluate<
+    {
+      added: { root: string; isGitRepo: boolean };
+      listLen: number;
+      created: { id: string; title: string; model: string };
+      renamed: boolean;
+      deleted: boolean;
+      afterDeleteLen: number;
+    },
+    string
+  >(async (dir) => {
+    const ufuk = (
+      window as unknown as {
+        ufuk: {
+          invoke: (
+            c: string,
+            p?: unknown,
+          ) => Promise<{
+            ok: boolean;
+            value?: unknown;
+            error?: { message: string; code?: string };
+          }>;
+        };
+      }
+    ).ufuk;
+    const call = (c: string, p?: unknown) => ufuk.invoke(c, p);
+    const unwrap = async (
+      r: Promise<{ ok: boolean; value?: unknown; error?: { message: string } }>,
+    ): Promise<unknown> => {
+      const res = await r;
+      if (!res.ok) throw new Error(res.error?.message ?? "ipc failed");
+      return res.value;
+    };
+    const added = (await unwrap(call("projects:add", { path: dir }))) as {
+      root: string;
+      isGitRepo: boolean;
+    };
+    const list = (await unwrap(
+      call("conversations:list", { root: added.root }),
+    )) as unknown[];
+    const created = (await unwrap(
+      call("conversations:create", { root: added.root }),
+    )) as { id: string; title: string; model: string };
+    const renamed = (await unwrap(
+      call("conversations:rename", {
+        root: added.root,
+        id: created.id,
+        title: "renamed by e2e",
+      }),
+    )) as boolean;
+    const deleted = (await unwrap(
+      call("conversations:delete", { root: added.root, id: created.id }),
+    )) as boolean;
+    const afterDelete = (await unwrap(
+      call("conversations:list", { root: added.root }),
+    )) as unknown[];
+    return {
+      added,
+      listLen: list.length,
+      created,
+      renamed,
+      deleted,
+      afterDeleteLen: afterDelete.length,
+    };
+  }, projectDir);
+  expect(result.added.isGitRepo).toBe(false);
+  expect(result.added.root.length).toBeGreaterThan(0);
+  expect(result.listLen).toBe(0);
+  expect(result.created.model).toBe("fast");
+  expect(result.created.title).toBe("new conversation");
+  expect(result.renamed).toBe(true);
+  expect(result.deleted).toBe(true);
+  expect(result.afterDeleteLen).toBe(0);
+  rmSync(projectDir, { recursive: true, force: true });
 });

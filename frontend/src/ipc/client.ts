@@ -1,5 +1,7 @@
 /** Typed renderer-side client over the preload bridge. */
 import type {
+  ConversationDetail,
+  ConversationSummary,
   EventMap,
   IpcResult,
   TypedInvoke,
@@ -11,6 +13,7 @@ import type {
   AppVersionResponse,
   LoginRequest,
   PrivacyInfo,
+  ProjectInfo,
   RegisterRequest,
   SessionInfo,
   Settings,
@@ -65,10 +68,56 @@ export const api = {
     ) as Promise<PrivacyInfo>,
   openExternal: (url: string) =>
     unwrap(bridge().invoke(INVOKE_CHANNELS.openExternal, { url })),
+  listProjects: () =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.projectsList)) as Promise<
+      ProjectInfo[]
+    >,
+  addProject: (path: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.projectsAdd, { path }),
+    ) as Promise<ProjectInfo>,
+  removeProject: (path: string) =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.projectsRemove, { path })),
+  pickFolder: () =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.projectsPickFolder)) as Promise<
+      string | null
+    >,
+  listConversations: (root: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsList, { root }),
+    ) as Promise<ConversationSummary[]>,
+  createConversation: (root: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsCreate, { root }),
+    ) as Promise<ConversationSummary>,
+  loadConversation: (root: string, id: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsLoad, { root, id }),
+    ) as Promise<ConversationDetail | null>,
+  renameConversation: (root: string, id: string, title: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsRename, {
+        root,
+        id,
+        title,
+      }),
+    ) as Promise<boolean>,
+  deleteConversation: (root: string, id: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.conversationsDelete, { root, id }),
+    ) as Promise<boolean>,
   subscribe: (<C extends EventChannel>(
     channel: C,
     listener: (payload: EventMap[C]) => void,
   ) => bridge().subscribe(channel, listener)) as TypedSubscribe,
 };
 
-export type { AppVersionResponse, SessionInfo, Settings, PrivacyInfo };
+export type {
+  AppVersionResponse,
+  SessionInfo,
+  Settings,
+  PrivacyInfo,
+  ProjectInfo,
+  ConversationSummary,
+  ConversationDetail,
+};

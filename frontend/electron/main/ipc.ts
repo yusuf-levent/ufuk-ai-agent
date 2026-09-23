@@ -7,8 +7,12 @@
 import { ipcMain, shell, dialog, BrowserWindow } from "electron";
 import { z } from "zod";
 import {
+  ConversationIdRequestSchema,
+  ConversationRenameRequestSchema,
   LoginRequestSchema,
   OpenExternalRequestSchema,
+  ProjectPathRequestSchema,
+  ProjectRootRequestSchema,
   RegisterRequestSchema,
   SettingsPatchSchema,
   type IpcResult,
@@ -24,6 +28,7 @@ import {
   fetchSessionInfo,
   type GatewaySession,
 } from "./gateway";
+import { ProjectManager, ProjectValidationError } from "./projects";
 
 export interface IpcDeps {
   win: () => BrowserWindow | null;
@@ -40,6 +45,8 @@ export interface IpcDeps {
   session: () => GatewaySession;
   setSession: (s: GatewaySession) => void;
   versions: () => { version: string; electron: string; node: string };
+  /** Project manager (recent projects + conversation stores). */
+  projects: ProjectManager;
 }
 
 type Handler = (
@@ -74,6 +81,9 @@ function register(
     try {
       return await handler(event, payload);
     } catch (err) {
+      if (err instanceof ProjectValidationError) {
+        return { ok: false, error: { message: err.message, code: err.code } };
+      }
       const mapped = authErrorCode(err);
       return { ok: false, error: mapped };
     }
@@ -175,6 +185,119 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       }
       await shell.openExternal(parsed.toString());
       return { ok: true, value: true };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // projects & conversations (Milestone 5)
+  // -----------------------------------------------------------------------
+
+  register(INVOKE_CHANNELS.projectsList, z.void(), async () => ({
+    ok: true,
+    value: deps.projects.list(),
+  }));
+
+  register(
+    INVOKE_CHANNELS.projectsAdd,
+    ProjectPathRequestSchema,
+    async (_e, payload) => {
+      const { path } = ProjectPathRequestSchema.parse(payload);
+      // throws ProjectValidationError -> coded envelope
+      return { ok: true, value: deps.projects.add(path) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.projectsRemove,
+    ProjectPathRequestSchema,
+    async (_e, payload) => {
+      const { path } = ProjectPathRequestSchema.parse(payload);
+      deps.projects.remove(path);
+      return { ok: true, value: null };
+    },
+  );
+
+  register(INVOKE_CHANNELS.projectsPickFolder, z.void(), async () => {
+    const win = deps.win();
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: "Add project folder",
+          properties: ["openDirectory"],
+        })
+      : { canceled: true, filePaths: [] as string[] };
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: true, value: null };
+    }
+    return { ok: true, value: result.filePaths[0] ?? null };
+  });
+
+  register(
+    INVOKE_CHANNELS.conversationsList,
+    ProjectRootRequestSchema,
+    async (_e, payload) => {
+      const { root } = ProjectRootRequestSchema.parse(payload);
+      deps.projects.touch(root);
+      return { ok: true, value: await deps.projects.listConversations(root) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.conversationsCreate,
+    ProjectRootRequestSchema,
+    async (_e, payload) => {
+      const { root } = ProjectRootRequestSchema.parse(payload);
+      const workspace = deps.projects.requireKnownRoot(root);
+      const opened = await deps.projects.store(root);
+      const model = deps.settings.load().defaultTier;
+      const id = await opened.store.createConversation(workspace.root, model);
+      const created = await opened.store.loadConversation(id);
+      if (!created) {
+        return {
+          ok: false,
+          error: { message: "conversation vanished", code: "internal" },
+        };
+      }
+      return { ok: true, value: created.summary };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.conversationsLoad,
+    ConversationIdRequestSchema,
+    async (_e, payload) => {
+      const { root, id } = ConversationIdRequestSchema.parse(payload);
+      deps.projects.requireKnownRoot(root);
+      const opened = await deps.projects.store(root);
+      return { ok: true, value: await opened.store.loadConversation(id) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.conversationsRename,
+    ConversationRenameRequestSchema,
+    async (_e, payload) => {
+      const { root, id, title } =
+        ConversationRenameRequestSchema.parse(payload);
+      deps.projects.requireKnownRoot(root);
+      const opened = await deps.projects.store(root);
+      return {
+        ok: true,
+        value: await opened.store.renameConversation(id, title),
+      };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.conversationsDelete,
+    ConversationIdRequestSchema,
+    async (_e, payload) => {
+      const { root, id } = ConversationIdRequestSchema.parse(payload);
+      deps.projects.requireKnownRoot(root);
+      const opened = await deps.projects.store(root);
+      return {
+        ok: true,
+        value: await opened.store.deleteConversation(id),
+      };
     },
   );
 }

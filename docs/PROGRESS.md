@@ -1,5 +1,55 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 5: Projects and conversations
+
+### What was done
+
+**evren-agent (nested repo, commit 80cb0f0):**
+- `ConversationStore` gained `renameConversation(id, title)` (trim + 200-char
+  cap; rename wins over the first-user-message auto title) and
+  `deleteConversation(id)` (messages + tool calls removed; JSONL log pruned
+  by rewrite). Implemented in both SQLite and JSONL stores with a shared
+  behavioral test suite (+2 tests × 2 stores).
+
+**frontend:**
+- **Main process** (`electron/main/projects.ts`): `ProjectManager` —
+  validates added folders (real directory + `WorkspaceRoot` safety check,
+  coded errors `not_a_directory`/`path_unsafe`), recent-projects JSON in
+  userData, git-repo probe (`.git` existence), per-project conversation
+  stores via `openConversationStore` (baseDir = userData/db; SQLite
+  preferred, JSONL fallback under Electron 44 until an ABI-149 prebuild
+  exists), store cache keyed by root, `requireKnownRoot` guard for
+  renderer-supplied roots.
+- **IPC**: 8 new channels (projects:list/add/remove/pick-folder,
+  conversations:list/create/load/rename/delete), all zod-validated with
+  documented request/response shapes in shared/channels.ts; ProjectValidationError
+  maps to a coded error envelope.
+- **Renderer**: `Sidebar` (projects with non-git warning + remove confirm;
+  conversations with select-to-resume, inline rename (double-click or ✎),
+  delete with confirm), `Transcript` (read-only persisted history through
+  SafeMarkdown; tool rows compact), `MainShell` (Antigravity-inspired
+  layout: left sidebar, main chat area, model selector + composer at the
+  bottom — sending lands in M6), `stores/projects.ts` (Zustand).
+- **e2e isolation fix**: Electron resolves appData via the Windows
+  known-folder API — the APPDATA env override never worked, so the M4 e2e
+  ack leaked into the real `%APPDATA%\Electron\settings.json`. Main now
+  honors a `UFUK_USER_DATA_DIR` env override (`app.setPath`) and the e2e
+  uses it; the leaked dev settings file was removed.
+- New e2e: add project → list → create → rename → delete conversation
+  through the REAL main-process stack (WorkspaceRoot + store engine).
+
+### Test counts
+
+- evren-agent: **235 passed** (agent-core 76, local-runner 159; +4)
+- frontend: **79 unit** (10 files) + **9 e2e**
+- evren-backend: 115 (untouched)
+- lint + typecheck clean everywhere
+
+### Commits
+
+- evren-agent: `feat(store): rename/delete conversation (interface + sqlite + jsonl)`
+- outer repo: M5 frontend + gitlink update
+
 ## 2026-09-23 — Milestone 4: Auth, settings, privacy
 
 ### What was done

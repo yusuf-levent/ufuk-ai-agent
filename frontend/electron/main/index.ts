@@ -15,6 +15,7 @@ import { registerIpcHandlers } from "./ipc";
 import { installSecurityDefaults } from "./security";
 import { SettingsStore } from "./settings";
 import { buildGatewaySession, type GatewaySession } from "./gateway";
+import { ProjectManager } from "./projects";
 import { safeStorage } from "electron";
 
 let mainWindow: BrowserWindow | null = null;
@@ -65,6 +66,14 @@ if (!app.requestSingleInstanceLock()) {
     // security handlers must be in place BEFORE any BrowserWindow exists
     installSecurityDefaults();
 
+    // test-only isolation: e2e/debug runs redirect userData (Electron's
+    // appData path follows the Windows known-folder API, so APPDATA env
+    // overrides do NOT work)
+    const userDataOverride = process.env["UFUK_USER_DATA_DIR"];
+    if (userDataOverride) {
+      app.setPath("userData", userDataOverride);
+    }
+
     const userDataDir = app.getPath("userData");
     const settings = new SettingsStore(userDataDir);
     let session: GatewaySession = buildGatewaySession(
@@ -87,6 +96,7 @@ if (!app.requestSingleInstanceLock()) {
         electron: process.versions.electron ?? "",
         node: process.versions.node ?? "",
       }),
+      projects: new ProjectManager(userDataDir),
     });
 
     createWindow();

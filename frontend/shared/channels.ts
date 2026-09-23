@@ -45,6 +45,45 @@ export const INVOKE_CHANNELS = {
    * Response: boolean (true when opened).
    */
   openExternal: "shell:open-external",
+  /** Recent projects (validated workspace roots). Response: ProjectInfo[]. */
+  projectsList: "projects:list",
+  /**
+   * Validate + remember a project folder. Request: { path } (absolute).
+   * Response: ProjectInfo. Errors: not_a_directory, path_unsafe.
+   */
+  projectsAdd: "projects:add",
+  /** Forget a project (conversations stay on disk). Request: { path }. */
+  projectsRemove: "projects:remove",
+  /**
+   * Native folder picker (OS dialog, main process only).
+   * Response: absolute path or null when cancelled.
+   */
+  projectsPickFolder: "projects:pick-folder",
+  /**
+   * Conversations of a project. Request: { root }. Response:
+   * ConversationSummary[] (updatedAt DESC).
+   */
+  conversationsList: "conversations:list",
+  /**
+   * Create a conversation in a project (model = settings.defaultTier).
+   * Request: { root }. Response: ConversationSummary.
+   */
+  conversationsCreate: "conversations:create",
+  /**
+   * Load one conversation (resume/preview). Request: { root, id }.
+   * Response: ConversationDetail | null.
+   */
+  conversationsLoad: "conversations:load",
+  /**
+   * Rename a conversation. Request: { root, id, title } (1-200 chars).
+   * Response: boolean (false when the id is unknown).
+   */
+  conversationsRename: "conversations:rename",
+  /**
+   * Delete a conversation (messages + tool calls). Request: { root, id }.
+   * Response: boolean.
+   */
+  conversationsDelete: "conversations:delete",
 } as const;
 
 /** Main -> renderer, push events (payload schemas in shared/ipc.ts). */

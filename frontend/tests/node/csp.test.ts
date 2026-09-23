@@ -23,7 +23,7 @@ describe("buildCsp", () => {
   it("production: frames, objects, base-uri and forms are all locked down", () => {
     const csp = buildCsp(false);
     expect(csp).toContain("object-src 'none'");
-    expect(csp).toContain("frame-src 'none'")
+    expect(csp).toContain("frame-src 'none'");
     expect(csp).toContain("child-src 'none'");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'none'");

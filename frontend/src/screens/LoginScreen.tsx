@@ -65,9 +65,7 @@ export function LoginScreen({
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Ufuk</h1>
-            <p className="text-xs text-neutral-500">
-              yerel kodlama ajanı
-            </p>
+            <p className="text-xs text-neutral-500">yerel kodlama ajanı</p>
           </div>
           <button
             type="button"
@@ -147,11 +145,7 @@ export function LoginScreen({
             disabled={busy}
             className="w-full rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy
-              ? "…"
-              : mode === "login"
-                ? "Log in"
-                : "Create account"}
+            {busy ? "…" : mode === "login" ? "Log in" : "Create account"}
           </button>
         </form>
 

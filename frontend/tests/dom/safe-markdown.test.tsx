@@ -71,7 +71,9 @@ describe("SafeMarkdown (untrusted model output)", () => {
   });
 
   it("strips iframe/object/embed from raw HTML", async () => {
-    await render('<iframe src="https://evil.example"></iframe><object></object>');
+    await render(
+      '<iframe src="https://evil.example"></iframe><object></object>',
+    );
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.querySelector("object")).toBeNull();
   });
@@ -91,12 +93,16 @@ describe("SafeMarkdown (untrusted model output)", () => {
     await act(async () => {
       button?.click();
     });
-    expect(openExternal).toHaveBeenCalledWith({ url: "https://example.com/docs" });
+    expect(openExternal).toHaveBeenCalledWith({
+      url: "https://example.com/docs",
+    });
     expect(window.location.href).toBe(locationBefore);
   });
 
   it("javascript: and data: URLs are stripped by the sanitizer before they can be clicked", async () => {
-    await render("[x](javascript:alert(1)) and [y](data:text/html,<script>1</script>)");
+    await render(
+      "[x](javascript:alert(1)) and [y](data:text/html,<script>1</script>)",
+    );
     const buttons = container.querySelectorAll("button");
     expect(buttons.length).toBe(2);
     for (const button of buttons) {

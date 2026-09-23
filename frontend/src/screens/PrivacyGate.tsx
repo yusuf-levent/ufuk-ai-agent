@@ -105,9 +105,9 @@ export function PrivacyGate({
         {info && (
           <div className="space-y-4 text-sm">
             <p className="leading-relaxed text-neutral-300">
-              Ufuk is a local coding agent, but its model runs in the cloud:
-              the <strong>code and prompts</strong> you work with are sent
-              through our gateway to third-party model providers.
+              Ufuk is a local coding agent, but its model runs in the cloud: the{" "}
+              <strong>code and prompts</strong> you work with are sent through
+              our gateway to third-party model providers.
             </p>
             <div className="space-y-2 rounded-lg border border-neutral-800 bg-neutral-950/60 p-3 text-xs leading-relaxed text-neutral-400">
               <div>

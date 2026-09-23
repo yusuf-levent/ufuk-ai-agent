@@ -35,8 +35,8 @@ describe("parseExternalUrl (system-browser gate)", () => {
 
   it("cannot be tricked by embedded scheme separators", () => {
     // URL parsing is scheme-first: these are relative http paths, not file: URLs
-    expect(parseExternalUrl("https://example.com/file:///etc/passwd")?.protocol).toBe(
-      "https:",
-    );
+    expect(
+      parseExternalUrl("https://example.com/file:///etc/passwd")?.protocol,
+    ).toBe("https:");
   });
 });

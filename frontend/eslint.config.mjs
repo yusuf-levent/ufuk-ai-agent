@@ -13,6 +13,7 @@ export default tseslint.config(
       "**/coverage/**",
       "**/test-results/**",
       "**/playwright-report/**",
+      "scripts/**",
     ],
   },
   eslint.configs.recommended,

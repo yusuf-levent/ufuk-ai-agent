@@ -36,18 +36,18 @@ export type InvokeSchema = z.ZodTypeAny;
 // ---------------------------------------------------------------------------
 
 /** http(s) only: the gateway is always an HTTP endpoint (z.url() alone accepts ftp: etc.). */
-const HttpUrlSchema = z
-  .url()
-  .refine(
-    (u) => {
-      try {
-        return new URL(u).protocol === "http:" || new URL(u).protocol === "https:";
-      } catch {
-        return false;
-      }
-    },
-    { message: "URL must use http or https" },
-  );
+const HttpUrlSchema = z.url().refine(
+  (u) => {
+    try {
+      return (
+        new URL(u).protocol === "http:" || new URL(u).protocol === "https:"
+      );
+    } catch {
+      return false;
+    }
+  },
+  { message: "URL must use http or https" },
+);
 
 export const SettingsSchema = z.object({
   /** Gateway API root (no /v1). The renderer never fetches it directly. */
@@ -106,6 +106,87 @@ export const OpenExternalRequestSchema = z.object({
 });
 export type OpenExternalRequest = z.infer<typeof OpenExternalRequestSchema>;
 
+// ---------------------------------------------------------------------------
+// projects & conversations (Milestone 5)
+// ---------------------------------------------------------------------------
+
+export const ProjectInfoSchema = z.object({
+  /** Normalized workspace root (the project identity everywhere). */
+  root: z.string().min(1),
+  name: z.string().min(1),
+  addedAt: z.string().min(1),
+  lastOpenedAt: z.string().min(1),
+  /** Informational: the UI warns when a project is not a git repo. */
+  isGitRepo: z.boolean(),
+});
+export type ProjectInfo = z.infer<typeof ProjectInfoSchema>;
+
+export const ProjectPathRequestSchema = z.object({
+  path: z.string().min(1),
+});
+export type ProjectPathRequest = z.infer<typeof ProjectPathRequestSchema>;
+
+export const ProjectRootRequestSchema = z.object({
+  root: z.string().min(1),
+});
+export type ProjectRootRequest = z.infer<typeof ProjectRootRequestSchema>;
+
+/** Summary of a stored conversation (mirrors agent-core). */
+export const ConversationSummarySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  model: z.string().optional(),
+});
+export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
+
+/** Serializable chat message (mirrors agent-core Message). */
+export const ChatMessageSchema = z.union([
+  z.object({ role: z.literal("system"), content: z.string() }),
+  z.object({ role: z.literal("user"), content: z.string() }),
+  z.object({
+    role: z.literal("assistant"),
+    content: z.string().nullable(),
+    toolCalls: z
+      .array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          arguments: z.string(),
+        }),
+      )
+      .optional(),
+  }),
+  z.object({
+    role: z.literal("tool"),
+    toolCallId: z.string(),
+    name: z.string(),
+    content: z.string(),
+  }),
+]);
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
+export const ConversationDetailSchema = z.object({
+  summary: ConversationSummarySchema,
+  messages: z.array(ChatMessageSchema),
+});
+export type ConversationDetail = z.infer<typeof ConversationDetailSchema>;
+
+export const ConversationIdRequestSchema = z.object({
+  root: z.string().min(1),
+  id: z.string().min(1),
+});
+export type ConversationIdRequest = z.infer<typeof ConversationIdRequestSchema>;
+
+export const ConversationRenameRequestSchema =
+  ConversationIdRequestSchema.extend({
+    title: z.string().min(1).max(200),
+  });
+export type ConversationRenameRequest = z.infer<
+  typeof ConversationRenameRequestSchema
+>;
+
 export const AppVersionResponseSchema = z.object({
   version: z.string(),
   electron: z.string(),
@@ -137,6 +218,30 @@ export interface InvokeMap {
   "auth:session": { request: undefined; response: SessionInfo | null };
   "privacy:info": { request: undefined; response: PrivacyInfo };
   "shell:open-external": { request: OpenExternalRequest; response: boolean };
+  "projects:list": { request: undefined; response: ProjectInfo[] };
+  "projects:add": { request: ProjectPathRequest; response: ProjectInfo };
+  "projects:remove": { request: ProjectPathRequest; response: null };
+  "projects:pick-folder": { request: undefined; response: string | null };
+  "conversations:list": {
+    request: ProjectRootRequest;
+    response: ConversationSummary[];
+  };
+  "conversations:create": {
+    request: ProjectRootRequest;
+    response: ConversationSummary;
+  };
+  "conversations:load": {
+    request: ConversationIdRequest;
+    response: ConversationDetail | null;
+  };
+  "conversations:rename": {
+    request: ConversationRenameRequest;
+    response: boolean;
+  };
+  "conversations:delete": {
+    request: ConversationIdRequest;
+    response: boolean;
+  };
 }
 
 /** Typed invoke signature used by the renderer client. */

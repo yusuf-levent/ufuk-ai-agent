@@ -114,8 +114,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               </button>
             </div>
             <p className="mt-1 text-[11px] text-neutral-500">
-              Changing this rebuilds the gateway session (fresh login state
-              per backend).
+              Changing this rebuilds the gateway session (fresh login state per
+              backend).
             </p>
           </div>
 
@@ -184,9 +184,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     name="perm"
                     checked={settings.permissionMode === mode.value}
                     disabled={busy}
-                    onChange={() =>
-                      void apply({ permissionMode: mode.value })
-                    }
+                    onChange={() => void apply({ permissionMode: mode.value })}
                     className="mt-0.5 accent-sky-500"
                   />
                   <span>

@@ -21,6 +21,26 @@ export const defaultPrivacyInfo = {
   accountDeletion: "Deleting your account removes profile and sessions.",
 };
 
+export const defaultProjects = [
+  {
+    root: "C:\\code\\app",
+    name: "app",
+    addedAt: "2026-01-01T00:00:00Z",
+    lastOpenedAt: "2026-01-02T00:00:00Z",
+    isGitRepo: true,
+  },
+];
+
+export const defaultConversations = [
+  {
+    id: "c_1",
+    title: "fix the test",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-02T00:00:00Z",
+    model: "fast",
+  },
+];
+
 export interface BridgeOverrides {
   [channel: string]: (payload?: unknown) => unknown;
 }
@@ -55,6 +75,28 @@ export function installBridge(overrides: BridgeOverrides = {}): {
             ok: true,
             value: { version: "0.1.0", electron: "44.4.3", node: "22" },
           };
+        case "projects:list":
+          return { ok: true, value: defaultProjects };
+        case "projects:pick-folder":
+          return { ok: true, value: null };
+        case "conversations:list":
+          return { ok: true, value: defaultConversations };
+        case "conversations:create":
+          return { ok: true, value: defaultConversations[0] };
+        case "conversations:load":
+          return {
+            ok: true,
+            value: {
+              summary: defaultConversations[0],
+              messages: [
+                { role: "user", content: "fix the test" },
+                { role: "assistant", content: "done" },
+              ],
+            },
+          };
+        case "conversations:rename":
+        case "conversations:delete":
+          return { ok: true, value: true };
         default:
           return { ok: false, error: { message: `no handler for ${channel}` } };
       }

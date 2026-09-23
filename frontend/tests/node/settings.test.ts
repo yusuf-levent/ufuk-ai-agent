@@ -35,7 +35,9 @@ describe("SettingsStore", () => {
     expect(next.theme).toBe("light");
     expect(next.defaultTier).toBe("strong");
 
-    const raw = JSON.parse(readFileSync(path.join(dir, "settings.json"), "utf8"));
+    const raw = JSON.parse(
+      readFileSync(path.join(dir, "settings.json"), "utf8"),
+    );
     expect(raw).toEqual(next);
 
     const reopened = new SettingsStore(dir);

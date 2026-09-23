@@ -25,10 +25,7 @@ const render = async (el: React.ReactNode): Promise<void> => {
   });
 };
 
-const type = async (
-  el: Element | null,
-  value: string,
-): Promise<void> => {
+const type = async (el: Element | null, value: string): Promise<void> => {
   if (!el) return;
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,
@@ -127,7 +124,10 @@ describe("LoginScreen", () => {
     const { invoke: failInvoke } = installBridge({
       "auth:login": () => ({
         ok: false,
-        error: { message: "Invalid email or password.", code: "invalid_credentials" },
+        error: {
+          message: "Invalid email or password.",
+          code: "invalid_credentials",
+        },
       }),
     });
     invoke = failInvoke;
@@ -136,7 +136,9 @@ describe("LoginScreen", () => {
     await type(inputs.item(0), "u@example.com");
     await type(inputs.item(1), "wrong");
     await act(async () => {
-      (container.querySelector("button[type=submit]") as HTMLButtonElement).click();
+      (
+        container.querySelector("button[type=submit]") as HTMLButtonElement
+      ).click();
     });
     expect(container.textContent).toContain("Invalid email or password");
     expect(container.textContent).not.toContain("HTTP");
@@ -155,7 +157,9 @@ describe("LoginScreen", () => {
     await type(inputs.item(1), "a@b.co");
     await type(inputs.item(2), "short");
     await act(async () => {
-      (container.querySelector("button[type=submit]") as HTMLButtonElement).click();
+      (
+        container.querySelector("button[type=submit]") as HTMLButtonElement
+      ).click();
     });
     expect(container.textContent).toContain("at least 8 characters");
     expect(
@@ -167,7 +171,10 @@ describe("LoginScreen", () => {
     const { invoke: failInvoke } = installBridge({
       "auth:register": () => ({
         ok: false,
-        error: { message: "email already registered", code: "registration_failed" },
+        error: {
+          message: "email already registered",
+          code: "registration_failed",
+        },
       }),
     });
     invoke = failInvoke;
@@ -182,7 +189,9 @@ describe("LoginScreen", () => {
     await type(inputs.item(1), "a@b.co");
     await type(inputs.item(2), "longenough");
     await act(async () => {
-      (container.querySelector("button[type=submit]") as HTMLButtonElement).click();
+      (
+        container.querySelector("button[type=submit]") as HTMLButtonElement
+      ).click();
     });
     expect(container.textContent).toContain("Registration failed");
     expect(container.textContent).toContain("email already registered");
@@ -193,7 +202,9 @@ describe("SettingsDialog", () => {
   it("rejects non-http(s) backend URLs without calling the bridge", async () => {
     setStore({});
     await render(<SettingsDialog onClose={() => {}} />);
-    const input = container.querySelector("input[type=text]") as HTMLInputElement;
+    const input = container.querySelector(
+      "input[type=text]",
+    ) as HTMLInputElement;
     await type(input, "ftp://nope");
     await act(async () => {
       [...container.querySelectorAll("button")]
@@ -201,7 +212,9 @@ describe("SettingsDialog", () => {
         ?.click();
     });
     expect(container.textContent).toContain("http:// or https://");
-    expect(invoke.mock.calls.filter(([c]) => c === "settings:set")).toHaveLength(0);
+    expect(
+      invoke.mock.calls.filter(([c]) => c === "settings:set"),
+    ).toHaveLength(0);
   });
 
   it("theme switch patches settings through the bridge", async () => {
@@ -222,16 +235,12 @@ describe("SettingsDialog", () => {
     const radios = [
       ...container.querySelectorAll('input[name="perm"]'),
     ] as HTMLInputElement[];
-    const labels = radios.map(
-      (r) => r.closest("label")?.textContent ?? "",
-    );
+    const labels = radios.map((r) => r.closest("label")?.textContent ?? "");
     expect(labels.some((t) => t.includes("Ask every time"))).toBe(true);
     expect(
       labels.some((t) => t.includes("Auto-accept edits inside the workspace")),
     ).toBe(true);
-    expect(
-      labels.some((t) => /allow\s+everything/i.test(t)),
-    ).toBe(false);
+    expect(labels.some((t) => /allow\s+everything/i.test(t))).toBe(false);
     const autoEdits = radios.find((r) =>
       r.closest("label")?.textContent.includes("Auto-accept"),
     );
@@ -239,7 +248,9 @@ describe("SettingsDialog", () => {
       autoEdits?.click();
     });
     const setCalls = invoke.mock.calls.filter(([c]) => c === "settings:set");
-    expect(setCalls.at(-1)?.[1]).toMatchObject({ permissionMode: "auto-edits" });
+    expect(setCalls.at(-1)?.[1]).toMatchObject({
+      permissionMode: "auto-edits",
+    });
   });
 
   it("Escape closes the dialog", async () => {
