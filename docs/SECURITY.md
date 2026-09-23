@@ -1,10 +1,10 @@
-# Ufuk — Security posture and limits (Milestone 2)
+# Ufuk — Security posture and limits (Milestones 2 + 9)
 
 This document describes the automated adversarial security suite in
-`evren-agent` and — just as important — what it does **not** cover. The
-default posture is **ask**: writes and commands always surface for approval
-unless the user explicitly allowed them; dangerous patterns can never be
-allowed at all.
+`evren-agent`, the desktop app's renderer/IPC hardening (Milestone 9), and —
+just as important — what it does **not** cover. The default posture is
+**ask**: writes and commands always surface for approval unless the user
+explicitly allowed them; dangerous patterns can never be allowed at all.
 
 ## The suite
 
@@ -47,6 +47,34 @@ Total agent suite: **231 tests** (76 agent-core + 155 local-runner).
    chained commands only match exactly. This closed an auto-approve bypass.
 10. **cmd `/c` / `/k` wrappers** now carry an ask floor (defense in depth for
     chaining through a second shell).
+
+## Desktop app hardening (Milestone 9)
+
+The Electron app (frontend/) layers these guarantees, all test-covered:
+
+- **Renderer isolation**: contextIsolation + sandbox + no nodeIntegration;
+  e2e asserts no `require`/`process` leak into the renderer.
+- **Navigation & popups blocked**: all `will-navigate` prevented (single
+  page app), `window.open` denied via setWindowOpenHandler, `<webview>`
+  attachment prevented, permission requests (geolocation/camera/…) denied.
+- **Strict CSP** in production (no unsafe-inline/eval anywhere); dev only
+  widens style-src + the HMR websocket.
+- **IPC bridge**: one narrow preload API (invoke/subscribe) with channel
+  allowlists; every invoke re-validates the sender origin in main
+  (file:// or localhost dev server only) and zod-validates the payload;
+  responses travel in an IpcResult envelope. e2e sends schema-violating
+  payloads and asserts `invalid_request`.
+- **Untrusted model output** renders through react-markdown +
+  rehype-sanitize; adversarial suite covers scripts, SVG/iframe/form/base/
+  meta carriers, event handlers, `javascript:`/`data:` URLs, mixed-case
+  and null-byte payloads. Links open only in the system browser after a
+  native confirmation, http(s) only (`parseExternalUrl`).
+- **Tokens**: Electron safeStorage (DPAPI) at rest; plain-JSON fallback is
+  flagged through session info; corrupt files force re-login; tokens never
+  cross the IPC bridge (channel + payload shapes asserted by tests).
+- **Audits** (2026-09-23): `pip-audit` clean; `pnpm audit` 2 moderate in
+  vitest's dev-only mocker (GHSA-82fw-gwwq-j7x9) — not shipped, upgrade
+  pending.
 
 ## Honest limits (what is NOT guaranteed)
 

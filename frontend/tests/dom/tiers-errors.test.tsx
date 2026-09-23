@@ -98,7 +98,12 @@ beforeEach(() => {
       permissionMode: "ask",
       privacyAcknowledged: true,
     },
-    session: { userId: "u1", email: "u@example.com", displayName: null },
+    session: {
+      userId: "u1",
+      email: "u@example.com",
+      displayName: null,
+      usingPlainTokenStore: false,
+    },
   });
 });
 

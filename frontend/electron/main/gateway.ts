@@ -95,6 +95,8 @@ export async function fetchSessionInfo(session: GatewaySession): Promise<{
   userId: string;
   email: string;
   displayName: string | null;
+  /** true when tokens are stored WITHOUT OS-level encryption (DPAPI unavailable). */
+  usingPlainTokenStore: boolean;
 } | null> {
   let token: string;
   try {
@@ -121,6 +123,7 @@ export async function fetchSessionInfo(session: GatewaySession): Promise<{
     email: body.email,
     displayName:
       typeof body.display_name === "string" ? body.display_name : null,
+    usingPlainTokenStore: session.tokenStore.usingPlainFallback,
   };
 }
 

@@ -187,6 +187,7 @@ describe("fetchSessionInfo", () => {
       userId: "u1",
       email: "u@example.com",
       displayName: "U",
+      usingPlainTokenStore: false,
     });
     const meCall = fetchMock.mock.calls.find(([url]) =>
       url.toString().endsWith("/me"),
@@ -194,6 +195,19 @@ describe("fetchSessionInfo", () => {
     expect((meCall?.[1] as RequestInit | undefined)?.headers).toMatchObject({
       authorization: expect.stringMatching(/^Bearer /),
     });
+  });
+
+  it("flags the plain (unencrypted) token store fallback in session info", async () => {
+    const fetchMock = gatewayMock();
+    const s = buildGatewaySession(
+      settings("http://localhost:8000"),
+      tmp(),
+      fakeSafe(false), // DPAPI unavailable
+      fetchMock,
+    );
+    await s.auth.login("u@example.com", "pw");
+    const info = await fetchSessionInfo(s);
+    expect(info?.usingPlainTokenStore).toBe(true);
   });
 
   it("returns null on 401 (expired session)", async () => {

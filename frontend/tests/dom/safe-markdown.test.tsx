@@ -120,4 +120,66 @@ describe("SafeMarkdown (untrusted model output)", () => {
     expect(pre?.textContent).toContain("window.location");
     expect(container.querySelector("script")).toBeNull();
   });
+
+  // ---------------------------------------------------------------------
+  // M9 hardening: additional adversarial payloads
+  // ---------------------------------------------------------------------
+
+  it("SVG with embedded script never becomes a live element", async () => {
+    await render(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    );
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("iframe srcdoc / sandbox escapes are stripped", async () => {
+    await render(
+      '<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>',
+    );
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("form, input, base and meta-refresh carriers are stripped", async () => {
+    await render(
+      '<form action="https://evil.example"><input type="text"></form>' +
+        '<base href="https://evil.example/">' +
+        '<meta http-equiv="refresh" content="0;url=https://evil.example">',
+    );
+    for (const tag of ["form", "input", "base", "meta"]) {
+      expect(container.querySelector(tag)).toBeNull();
+    }
+  });
+
+  it("img with javascript:/data: src does not keep the dangerous src", async () => {
+    await render(
+      '<img src="javascript:alert(1)" alt="x"><img src="data:text/html,<script>1</script>" alt="y">',
+    );
+    const imgs = container.querySelectorAll("img");
+    expect(imgs.length).toBeGreaterThanOrEqual(0); // sanitized or dropped
+    for (const img of imgs) {
+      const src = img.getAttribute("src");
+      expect(src).not.toMatch(/^javascript:/i);
+      expect(src).not.toMatch(/^data:text\/html/i);
+    }
+  });
+
+  it("autofocused/onfocus handlers never survive sanitization", async () => {
+    await render('<input autofocus onfocus="alert(1)">');
+    expect(container.querySelector("input")).toBeNull();
+  });
+
+  it("markdown images with event-handler-like alt text are inert", async () => {
+    await render('![onerror=alert(1)](https://example.com/x.png)');
+    const imgs = container.querySelectorAll("img");
+    for (const img of imgs) {
+      expect(img.getAttribute("onerror")).toBeNull();
+    }
+  });
+
+  it("mixed case <SCRIPT> and null-byte payloads do not execute", async () => {
+    await render("<ScRiPt>alert(1)</ScRiPt>\u0000<script>alert(2)</script>");
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelectorAll("*").length).toBeGreaterThanOrEqual(1);
+  });
 });

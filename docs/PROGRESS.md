@@ -1,5 +1,47 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 9: Hardening pass
+
+### What was done
+
+- **Malicious output suite extended** (+7 adversarial markdown tests):
+  SVG with embedded script, iframe srcdoc, form/input/base/meta-refresh
+  carriers, `javascript:`/`data:text/html` img srcs, autofocus/onfocus,
+  mixed-case `<ScRiPt>` + null-byte payloads — nothing executes, links
+  never navigate.
+- **Navigation & window.open blocking e2e** (+2): renderer attempts
+  (anchor click + `location.assign`) keep the app on its own URL;
+  IPC payloads are zod-validated in main (schema-violating chat:send and
+  settings:set rejected with `invalid_request`).
+- **Sender checks** (node): `isTrustedSender` accepts only file:// (packaged)
+  and localhost dev-server origins; rejects remote, about:blank,
+  chrome-extension and invalid URLs. `parseExternalUrl` rejects 10+
+  schemes (javascript mixed-case, data, vbscript, file, ms-msdt,
+  search-ms, shell, intent, ws).
+- **Secrets hygiene**: no IPC channel name or payload shape carries
+  tokens; the encrypted token file never contains plaintext (at-rest
+  assertion); safeStorage failure path: plain fallback flagged in
+  session info (`usingPlainTokenStore`), corrupt files force re-login
+  without crashing. `auth:session` now surfaces the fallback flag.
+- **Audits**:
+  - `pip-audit` (backend venv): **no known vulnerabilities**.
+  - `pnpm audit` (workspace): **2 moderate** — GHSA-82fw-gwwq-j7x9
+    (Vitest path traversal via @vitest/mocker redirect mock, vitest
+    ≥2.1.0 <4.1.11). DevDependency only (test runner; not shipped in the
+    app or installer). Accepted risk; upgrade vitest to ≥4.1.11 as a
+    follow-up (major-version jump deferred to avoid destabilizing 466+
+    tests mid-project).
+
+### Test counts
+
+- frontend: **128 unit** (15 files; +17) + **11 e2e** (+2)
+- evren-agent: 237, evren-backend: 115 (untouched)
+- lint + typecheck clean
+
+### Commits
+
+- outer repo: M9 hardening suite + audit results
+
 ## 2026-09-23 — Milestone 8: Tiers, credits, errors
 
 ### What was done

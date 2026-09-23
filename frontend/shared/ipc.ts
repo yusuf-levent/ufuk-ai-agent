@@ -89,6 +89,8 @@ export const SessionInfoSchema = z.object({
   userId: z.string(),
   email: z.string(),
   displayName: z.string().nullable(),
+  /** true when tokens are stored WITHOUT OS-level encryption (DPAPI unavailable). */
+  usingPlainTokenStore: z.boolean().default(false),
 });
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 

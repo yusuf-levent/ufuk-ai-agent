@@ -148,6 +148,57 @@ test("window.open is blocked by the main process", async () => {
   expect(app.windows().length).toBe(1);
 });
 
+test("all navigation away from the app is blocked (M9)", async () => {
+  const win = await app.firstWindow();
+  const urlBefore = win.url();
+  const result = await win.evaluate(() => {
+    // renderer tries to navigate: link click, location assignment
+    const a = document.createElement("a");
+    a.href = "https://evil.example/";
+    document.body.appendChild(a);
+    a.click();
+    try {
+      window.location.assign("https://evil.example/assign");
+    } catch {
+      // assign may throw in some contexts — the block still counts
+    }
+    return window.location.href;
+  });
+  await win.waitForTimeout(300);
+  // the renderer never navigated away
+  expect(win.url()).toBe(urlBefore);
+  expect(result).not.toContain("evil.example");
+});
+
+test("IPC payloads are zod-validated in main (M9)", async () => {
+  const win = await app.firstWindow();
+  const bad = await win.evaluate(async () => {
+    const ufuk = (window as unknown as {
+      ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
+    }).ufuk;
+    // schema-violating payloads are rejected with invalid_request
+    return (await ufuk.invoke("chat:send", {
+      root: "",
+      conversationId: "",
+      message: "",
+    })) as { ok: boolean; error?: { code?: string } };
+  });
+  expect(bad.ok).toBe(false);
+  expect(bad.error?.code).toBe("invalid_request");
+  // structurally wrong payloads too
+  const wrong = await win.evaluate(async () => {
+    const ufuk = (window as unknown as {
+      ufuk: { invoke: (c: string, p?: unknown) => Promise<unknown> };
+    }).ufuk;
+    return (await ufuk.invoke("settings:set", {
+      theme: "neon",
+      permissionMode: "allow-everything",
+    })) as { ok: boolean; error?: { code?: string } };
+  });
+  expect(wrong.ok).toBe(false);
+  expect(wrong.error?.code).toBe("invalid_request");
+});
+
 test("IPC round-trip: version channel works through the bridge", async () => {
   const win = await app.firstWindow();
   const result = await win.evaluate(async () => {
