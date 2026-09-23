@@ -6,7 +6,7 @@
  */
 import { create } from "zustand";
 import { api } from "../ipc/client";
-import type { ChatEventPayload } from "@shared/ipc";
+import type { ChatEventPayload, ChatErrorInfo } from "@shared/ipc";
 import type { Usage } from "@evren/agent-core";
 
 /** One tool step in the timeline (tool_call + matching tool_result). */
@@ -34,6 +34,10 @@ export interface LiveTurn {
   fileChanges: FileChange[];
   usage: Usage | null;
   error: string | null;
+  /** Structured error code for actionable UI (M8). */
+  errorCode: ChatErrorInfo["code"] | null;
+  /** Epoch-ms timestamp until a rate-limit retry is allowed. */
+  retryUntil: number | null;
   running: boolean;
   /** Pending approval_request awaiting a renderer decision. */
   approval: { id: string; tool: string; input: unknown } | null;
@@ -70,6 +74,8 @@ const emptyTurn = (): LiveTurn => ({
   fileChanges: [],
   usage: null,
   error: null,
+  errorCode: null,
+  retryUntil: null,
   running: false,
   approval: null,
 });
@@ -173,7 +179,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
       });
     },
 
-    handleEvent: ({ conversationId, event }) => {
+    handleEvent: ({ conversationId, event, errorInfo }) => {
       switch (event.type) {
         case "message_delta":
           patchTurn(conversationId, (t) => ({
@@ -272,6 +278,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
           patchTurn(conversationId, (t) => ({
             ...t,
             error: event.message,
+            errorCode: errorInfo?.code ?? null,
+            retryUntil:
+              errorInfo?.retryAfterMs !== undefined
+                ? Date.now() + errorInfo.retryAfterMs
+                : null,
             ...(event.fatal ? { running: false } : {}),
           }));
           break;

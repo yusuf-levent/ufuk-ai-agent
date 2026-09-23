@@ -1,15 +1,13 @@
 /**
- * Composer (bottom bar): model selector (tier alias) + message input.
- * Enter sends, Shift+Enter inserts a newline; the Stop button aborts the
- * active run; Retry re-sends the last message after a failure. Esc (global)
- * and Ctrl+N (global) are handled in MainShell. Approval prompts render as
- * the modal hosted by MainShell (Milestone 7).
+ * Composer (bottom bar): tier selector from the live catalog (display name
+ * + real upstream provider/model in a details popover; locked tiers with
+ * an explanation) + message input. Enter sends, Shift+Enter inserts a
+ * newline; Stop aborts; Retry re-sends the last message.
  */
 import { useState } from "react";
 import { useAppStore } from "../stores/app";
 import { useChatStore } from "../stores/chat";
-
-const TIERS = ["fast", "balanced", "strong"] as const;
+import { useModelsStore } from "../stores/models";
 
 export function Composer({
   root,
@@ -22,6 +20,7 @@ export function Composer({
   onTurnStarted: () => void;
 }) {
   const { settings, patchSettings } = useAppStore();
+  const catalog = useModelsStore((s) => s.catalog);
   const running = useChatStore(
     (s) => s.turns[conversationId]?.running ?? false,
   );
@@ -35,6 +34,7 @@ export function Composer({
   const stop = useChatStore((s) => s.stop);
   const retry = useChatStore((s) => s.retry);
   const [input, setInput] = useState("");
+  const [tierDetails, setTierDetails] = useState<string | null>(null);
 
   const submit = (): void => {
     const message = input.trim();
@@ -44,10 +44,15 @@ export function Composer({
     void send(root, conversationId, message, settings?.defaultTier);
   };
 
+  const allowed = catalog?.allowed ?? [];
+  const locked = catalog?.locked ?? [];
+  const selected = allowed.find((t) => t.id === settings?.defaultTier);
+  const fallbackTiers = ["fast", "balanced", "strong"];
+
   return (
     <footer className="shrink-0 border-t border-neutral-800 p-3">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-2 flex items-center gap-3 text-xs text-neutral-500">
+        <div className="relative mb-2 flex items-center gap-3 text-xs text-neutral-500">
           <label className="flex items-center gap-1">
             model
             <select
@@ -58,16 +63,80 @@ export function Composer({
               disabled={running}
               className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-xs text-neutral-200"
             >
-              {TIERS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {(allowed.length > 0
+                ? allowed.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.displayName ?? t.id}
+                    </option>
+                  ))
+                : fallbackTiers.map((t) => <option key={t}>{t}</option>)
+              ).concat(
+                // keep an unknown/current selection visible
+                allowed.some((t) => t.id === settings?.defaultTier) ||
+                  fallbackTiers.includes(settings?.defaultTier ?? "")
+                  ? []
+                  : [
+                      <option key="__current" value={settings?.defaultTier}>
+                        {settings?.defaultTier}
+                      </option>,
+                    ],
+              )}
+              {locked.map((t) => (
+                <option key={t.id} value={t.id} disabled title={t.reason}>
+                  🔒 {t.id}
                 </option>
               ))}
             </select>
           </label>
+          {selected && (
+            <button
+              type="button"
+              onClick={() =>
+                setTierDetails(tierDetails === selected.id ? null : selected.id)
+              }
+              className="text-[10px] text-neutral-500 underline hover:text-sky-400"
+            >
+              details
+            </button>
+          )}
           <span className="ml-auto text-[10px]">
             Enter to send · Shift+Enter for a new line
           </span>
+          {tierDetails && selected && (
+            <div className="absolute bottom-full left-0 z-40 mb-1 w-64 rounded-lg border border-neutral-700 bg-neutral-900 p-2 text-[11px] shadow-xl">
+              <div className="font-medium text-neutral-200">
+                {selected.displayName ?? selected.id}
+              </div>
+              <dl className="mt-1 space-y-0.5 text-neutral-400">
+                <div className="flex justify-between gap-2">
+                  <dt>upstream</dt>
+                  <dd className="truncate font-mono">
+                    {selected.upstreamProvider ?? "?"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>model</dt>
+                  <dd className="truncate font-mono">
+                    {selected.upstreamModel ?? "?"}
+                  </dd>
+                </div>
+                {selected.contextWindow !== undefined && (
+                  <div className="flex justify-between gap-2">
+                    <dt>context</dt>
+                    <dd>{selected.contextWindow.toLocaleString()} tokens</dd>
+                  </div>
+                )}
+                {selected.maxOutputTokens !== undefined && (
+                  <div className="flex justify-between gap-2">
+                    <dt>max output</dt>
+                    <dd>
+                      {selected.maxOutputTokens.toLocaleString()} tokens
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
         </div>
         <div className="flex items-end gap-2">
           <textarea

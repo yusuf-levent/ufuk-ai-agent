@@ -8,6 +8,7 @@
 import { memo, useState } from "react";
 import type { ChatMessage } from "@shared/ipc";
 import { SafeMarkdown } from "./SafeMarkdown";
+import { FriendlyErrorView } from "./FriendlyErrorView";
 import type { LiveTurn, ToolStep } from "../stores/chat";
 
 const MAX_INLINE = 6_000;
@@ -203,14 +204,7 @@ export const LiveTurnView = memo(function LiveTurnView({
         </div>
       )}
       <UsageBar turn={turn} />
-      {turn.error && (
-        <div
-          role="alert"
-          className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-xs text-red-300"
-        >
-          {turn.error}
-        </div>
-      )}
+      {turn.error && <FriendlyErrorView turn={turn} />}
     </div>
   );
 });

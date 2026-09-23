@@ -1,5 +1,50 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 8: Tiers, credits, errors
+
+### What was done
+
+**evren-agent (nested repo, commit d65c0cb):**
+- `GatewayModelInfo.upstreamProvider` parsed from `/v1/models` details
+  (mock + test updated) — powers the "real upstream provider/model"
+  popover.
+
+**frontend:**
+- **Tier selector (live catalog)**: `models:list` IPC combines
+  `/v1/models` (allowed tiers with display names, upstream provider/model,
+  context window, max output) with the public `/plans` endpoint (tiers on
+  other plans → shown 🔒-locked with "Not available on your plan
+  (available on X)"). Details popover next to the selector. Falls back to
+  the static fast/balanced/strong list when the catalog can't load.
+- **Credit indicator** (`usage:get` → /usage): remaining/limit bar in the
+  header (green → amber >70% → red >90%), plan name + period end + rpm in
+  the tooltip, "no active subscription" badge on 403. Refreshed after
+  every finished run (credits change).
+- **Actionable chat errors**: the runtime attaches structured `errorInfo`
+  to fatal error events (quota_exceeded, subscription_inactive,
+  model_not_allowed, rate_limited + retryAfterMs, reauth_required,
+  gateway_unreachable, upstream_unavailable, upstream_error, timeout —
+  derived from ProviderError status/body, desktop-worded messages).
+  `FriendlyErrorView` renders: quota → "nothing was charged" note;
+  rate limit → LIVE countdown from Retry-After; session expired → "Log in
+  again" button (single re-login via logout); unreachable → retry hint.
+- `mapClientError` for the models/usage channels (reauth / unreachable /
+  subscription_inactive codes); fixed `buildGatewaySession` to forward
+  `fetchImpl` to `GatewayClient` (previously the client used the global
+  fetch — caught by the new mocked-gateway test).
+
+### Test counts
+
+- evren-agent: 237 (agent-core 76 + local-runner 161; +0 net, field added)
+- frontend: **111 unit** (14 files; +8) + **9 e2e**
+- evren-backend: 115 (untouched)
+- lint + typecheck clean
+
+### Commits
+
+- evren-agent: `feat(gateway): expose upstream_provider in GatewayModelInfo (desktop M8)`
+- outer repo: M8 tiers/credits/errors + gitlink update
+
 ## 2026-09-23 — Milestone 7: Approvals, diffs, undo
 
 ### What was done

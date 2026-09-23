@@ -9,6 +9,9 @@ import {
   authErrorCode,
   buildGatewaySession,
   fetchSessionInfo,
+  fetchTierCatalog,
+  fetchUsage,
+  mapClientError,
 } from "../../electron/main/gateway";
 import { fakeSafe } from "./helpers/fake-safe-storage";
 
@@ -222,5 +225,123 @@ describe("fetchSessionInfo", () => {
       async () => new Response("{}", { status: 500 }),
     );
     await expect(fetchSessionInfo(s)).rejects.toThrow("HTTP 500");
+  });
+});
+
+describe("mapClientError (M8 error codes)", () => {
+  it("maps reauth, unreachable and HTTP-status client errors", () => {
+    expect(mapClientError(new ReauthRequiredError())).toMatchObject({
+      code: "reauth_required",
+    });
+    expect(
+      mapClientError(new Error("Gateway unreachable: connection refused")),
+    ).toMatchObject({ code: "gateway_unreachable" });
+    expect(
+      mapClientError(
+        new Error(
+          'Gateway HTTP 403: {"error": {"code": "subscription_inactive"}}',
+        ),
+      ),
+    ).toMatchObject({ code: "subscription_inactive" });
+    expect(
+      mapClientError(
+        new Error('Gateway HTTP 402: {"error": {"code": "quota_exceeded"}}'),
+      ),
+    ).toMatchObject({ code: "quota_exceeded" });
+    expect(mapClientError(new Error("Gateway HTTP 500: boom"))).toMatchObject({
+      code: "http_500",
+    });
+    expect(mapClientError(new Error("boom"))).toMatchObject({
+      code: "unknown",
+    });
+  });
+});
+
+describe("fetchTierCatalog / fetchUsage (mocked gateway)", () => {
+  it("combines allowed models with locked tiers from /plans", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/login") || url.endsWith("/auth/refresh")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "acc-1",
+            refresh_token: "ref-1",
+            token_type: "bearer",
+            expires_in: 900,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/models")) {
+        return new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                id: "fast",
+                details: {
+                  display_name: "Fast",
+                  upstream_provider: "evren",
+                  upstream_model: "deepseek-v4-flash",
+                  max_output_tokens: 8192,
+                  context_window: 128000,
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/plans")) {
+        return new Response(
+          JSON.stringify([
+            { name: "Free", allowed_tier_aliases: ["fast"] },
+            { name: "Pro", allowed_tier_aliases: ["fast", "balanced", "strong"] },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/usage")) {
+        return new Response(
+          JSON.stringify({
+            plan_name: "Free",
+            credit_limit: "100.000000",
+            credits_used: "95.000000",
+            credits_remaining: "5.000000",
+            requests_per_minute: 10,
+            period_end: "2026-10-01T00:00:00Z",
+            per_tier: [],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const s = buildGatewaySession(settings("http://localhost:8000"), tmp(), fakeSafe(), fetchMock);
+    // login so the client has a token
+    await s.auth.login("u@example.com", "pw");
+
+    const catalog = await fetchTierCatalog(s);
+    expect(catalog.allowed).toHaveLength(1);
+    expect(catalog.allowed[0]).toMatchObject({
+      id: "fast",
+      displayName: "Fast",
+      upstreamProvider: "evren",
+      upstreamModel: "deepseek-v4-flash",
+      contextWindow: 128000,
+    });
+    // tiers on other plans but not ours are locked with an explanation
+    const lockedIds = catalog.locked.map((t) => t.id).sort();
+    expect(lockedIds).toEqual(["balanced", "strong"]);
+    expect(catalog.locked[0]?.reason).toContain("Not available on your plan");
+
+    const usage = await fetchUsage(s);
+    expect(usage).toMatchObject({
+      planName: "Free",
+      creditLimit: 100,
+      creditsUsed: 95,
+      creditsRemaining: 5,
+      requestsPerMinute: 10,
+    });
   });
 });

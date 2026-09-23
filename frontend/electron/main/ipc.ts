@@ -33,6 +33,9 @@ import {
   buildGatewaySession,
   fetchPrivacyInfo,
   fetchSessionInfo,
+  fetchTierCatalog,
+  fetchUsage,
+  mapClientError,
   type GatewaySession,
 } from "./gateway";
 import { ProjectManager, ProjectValidationError } from "./projects";
@@ -512,6 +515,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { ok: true, value: out };
     },
   );
+
+  // -----------------------------------------------------------------------
+  // tiers & usage (Milestone 8)
+  // -----------------------------------------------------------------------
+
+  register(INVOKE_CHANNELS.modelsList, z.void(), async () => {
+    try {
+      return { ok: true, value: await fetchTierCatalog(deps.session()) };
+    } catch (err) {
+      return { ok: false, error: mapClientError(err) };
+    }
+  });
+
+  register(INVOKE_CHANNELS.usageGet, z.void(), async () => {
+    try {
+      return { ok: true, value: await fetchUsage(deps.session()) };
+    } catch (err) {
+      return { ok: false, error: mapClientError(err) };
+    }
+  });
 }
 
 function workspaceRelativeEq(

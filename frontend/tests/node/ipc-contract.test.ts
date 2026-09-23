@@ -66,6 +66,8 @@ describe("channel allowlists", () => {
       "checkpoints:undo",
       "checkpoints:revert",
       "checkpoints:diff",
+      "models:list",
+      "usage:get",
     ];
     const invokeValues = Object.values(INVOKE_CHANNELS);
     // every InvokeMap key is a registered channel...

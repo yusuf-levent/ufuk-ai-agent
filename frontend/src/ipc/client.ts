@@ -1,18 +1,14 @@
 /** Typed renderer-side client over the preload bridge. */
-import type {
-  ConversationDetail,
-  ConversationSummary,
-  EventMap,
-  IpcResult,
-  TypedInvoke,
-  TypedSubscribe,
-} from "@shared/ipc";
 import type { EventChannel } from "@shared/channels";
 import { INVOKE_CHANNELS } from "@shared/channels";
 import type {
   AppVersionResponse,
   CheckpointInfo,
+  ConversationDetail,
+  ConversationSummary,
   DiffResponse,
+  EventMap,
+  IpcResult,
   LoginRequest,
   PrivacyInfo,
   ProjectInfo,
@@ -20,6 +16,10 @@ import type {
   SessionInfo,
   Settings,
   SettingsPatch,
+  TierCatalog,
+  TypedInvoke,
+  TypedSubscribe,
+  UsageInfo,
 } from "@shared/ipc";
 
 interface UfukBridge {
@@ -170,6 +170,27 @@ export const api = {
     ) as Promise<
       { path: string; tool: string; ok: boolean; at: string }[]
     >,
+  tierCatalog: () =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.modelsList)) as Promise<{
+      allowed: {
+        id: string;
+        displayName?: string;
+        upstreamProvider?: string;
+        upstreamModel?: string;
+        maxOutputTokens?: number;
+        contextWindow?: number;
+      }[];
+      locked: { id: string; reason: string }[];
+    }>,
+  usage: () =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.usageGet)) as Promise<{
+      planName: string;
+      creditLimit: number;
+      creditsUsed: number;
+      creditsRemaining: number;
+      requestsPerMinute: number;
+      periodEnd?: string;
+    }>,
   subscribe: (<C extends EventChannel>(
     channel: C,
     listener: (payload: EventMap[C]) => void,
@@ -186,4 +207,6 @@ export type {
   ConversationDetail,
   CheckpointInfo,
   DiffResponse,
+  TierCatalog,
+  UsageInfo,
 };

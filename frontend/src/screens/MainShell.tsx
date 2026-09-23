@@ -9,11 +9,61 @@ import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../stores/app";
 import { useProjectsStore } from "../stores/projects";
 import { useChatStore } from "../stores/chat";
+import { useModelsStore } from "../stores/models";
 import { Sidebar } from "../components/Sidebar";
 import { Transcript } from "../components/Transcript";
 import { Composer } from "../components/Composer";
 import { ApprovalModal } from "../components/ApprovalModal";
 import { ChangesPanel } from "../components/ChangesPanel";
+
+function CreditIndicator() {
+  const usage = useModelsStore((s) => s.usage);
+  const usageError = useModelsStore((s) => s.usageError);
+  const usageErrorCode = useModelsStore((s) => s.usageErrorCode);
+  if (usage) {
+    const pct =
+      usage.creditLimit > 0
+        ? Math.min(100, (usage.creditsUsed / usage.creditLimit) * 100)
+        : 0;
+    return (
+      <span
+        className="flex items-center gap-1.5 text-neutral-400"
+        title={`${usage.planName} · period ends ${
+          usage.periodEnd
+            ? new Date(usage.periodEnd).toLocaleDateString()
+            : "—"
+        } · ${usage.requestsPerMinute} req/min`}
+      >
+        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-neutral-800">
+          <span
+            className={
+              "block h-full " +
+              (pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-sky-500")
+            }
+            style={{ width: `${pct}%` }}
+          />
+        </span>
+        <span className="tabular-nums text-[10px]">
+          {usage.creditsRemaining.toLocaleString(undefined, {
+            maximumFractionDigits: 1,
+          })}{" "}
+          / {usage.creditLimit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        </span>
+      </span>
+    );
+  }
+  if (usageErrorCode === "subscription_inactive") {
+    return (
+      <span
+        className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300"
+        title={usageError ?? undefined}
+      >
+        no active subscription
+      </span>
+    );
+  }
+  return null;
+}
 
 export function MainShell({
   onOpenSettings,
@@ -33,6 +83,7 @@ export function MainShell({
   const subscribe = useChatStore((s) => s.subscribe);
   const turns = useChatStore((s) => s.turns);
   const stop = useChatStore((s) => s.stop);
+  const refreshModels = useModelsStore((s) => s.refresh);
   const [loggingOut, setLoggingOut] = useState(false);
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,7 +91,8 @@ export function MainShell({
   useEffect(() => {
     void loadProjects();
     subscribe();
-  }, [loadProjects, subscribe]);
+    void refreshModels();
+  }, [loadProjects, subscribe, refreshModels]);
 
   // when the active run finishes (running -> false with content), reload
   // the persisted conversation so history stays the single source of truth
@@ -51,8 +103,9 @@ export function MainShell({
     runningRef.current = turn?.running ?? false;
     if (wasRunning && !runningRef.current) {
       void reloadActive();
+      void refreshModels(); // credits changed
     }
-  }, [turn?.running, reloadActive]);
+  }, [turn?.running, reloadActive, refreshModels]);
 
   // global shortcuts: Esc stops the active run, Ctrl+N new conversation
   useEffect(() => {
@@ -122,6 +175,7 @@ export function MainShell({
             </span>
           )}
           <div className="ml-auto flex items-center gap-2 text-xs">
+            <CreditIndicator />
             {lastAssistant && (
               <button
                 type="button"

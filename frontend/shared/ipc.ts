@@ -300,6 +300,62 @@ export const ChangedFileSchema = z.object({
 });
 export type ChangedFile = z.infer<typeof ChangedFileSchema>;
 
+// ---------------------------------------------------------------------------
+// tiers & usage (Milestone 8)
+// ---------------------------------------------------------------------------
+
+/** A tier the current plan allows (details from /v1/models). */
+export const TierOptionSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().optional(),
+  upstreamProvider: z.string().optional(),
+  upstreamModel: z.string().optional(),
+  maxOutputTokens: z.number().optional(),
+  contextWindow: z.number().optional(),
+});
+export type TierOption = z.infer<typeof TierOptionSchema>;
+
+/** A tier that exists but is not on the current plan. */
+export const LockedTierSchema = z.object({
+  id: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type LockedTier = z.infer<typeof LockedTierSchema>;
+
+export const TierCatalogSchema = z.object({
+  allowed: z.array(TierOptionSchema),
+  locked: z.array(LockedTierSchema),
+});
+export type TierCatalog = z.infer<typeof TierCatalogSchema>;
+
+export const UsageInfoSchema = z.object({
+  planName: z.string(),
+  creditLimit: z.number(),
+  creditsUsed: z.number(),
+  creditsRemaining: z.number(),
+  requestsPerMinute: z.number(),
+  periodEnd: z.string().optional(),
+});
+export type UsageInfo = z.infer<typeof UsageInfoSchema>;
+
+/** Structured chat error info (actionable UI in the renderer). */
+export const ChatErrorInfoSchema = z.object({
+  code: z.enum([
+    "quota_exceeded",
+    "subscription_inactive",
+    "model_not_allowed",
+    "rate_limited",
+    "reauth_required",
+    "gateway_unreachable",
+    "upstream_unavailable",
+    "upstream_error",
+    "timeout",
+  ]),
+  /** Milliseconds to wait (rate limit / circuit breaker), when known. */
+  retryAfterMs: z.number().optional(),
+});
+export type ChatErrorInfo = z.infer<typeof ChatErrorInfoSchema>;
+
 export const AppVersionResponseSchema = z.object({
   version: z.string(),
   electron: z.string(),
@@ -315,6 +371,8 @@ export type AppVersionResponse = z.infer<typeof AppVersionResponseSchema>;
 export interface ChatEventPayload {
   conversationId: string;
   event: AgentEvent;
+  /** Structured error info attached to fatal error events (M8). */
+  errorInfo?: ChatErrorInfo;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +444,8 @@ export interface InvokeMap {
     request: ConversationIdRequest;
     response: ChangedFile[];
   };
+  "models:list": { request: undefined; response: TierCatalog };
+  "usage:get": { request: undefined; response: UsageInfo };
 }
 
 /** Typed invoke signature used by the renderer client. */

@@ -44,7 +44,7 @@ export function buildGatewaySession(
   const tokenFile = path.join(userDataDir, "gateway", `tokens-${hash}.bin`);
   const tokenStore = createTokenStore(tokenFile, safe);
   const auth = new GatewayAuth({ baseURL, store: tokenStore.store, fetchImpl });
-  const client = new GatewayClient(auth, baseURL);
+  const client = new GatewayClient(auth, baseURL, fetchImpl);
   return {
     auth,
     client,
@@ -152,5 +152,131 @@ export async function fetchPrivacyInfo(session: GatewaySession): Promise<{
       typeof body["account_deletion"] === "string"
         ? body["account_deletion"]
         : "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// tiers & usage (Milestone 8)
+// ---------------------------------------------------------------------------
+
+/** Map GatewayClient/getJson errors to coded IpcErrors for the renderer. */
+export function mapClientError(err: unknown): {
+  message: string;
+  code: string;
+} {
+  if (err instanceof ReauthRequiredError) {
+    return {
+      message: "Session expired. Please log in again.",
+      code: "reauth_required",
+    };
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.startsWith("Gateway unreachable")) {
+    return {
+      message: "Cannot reach the backend. Is it running?",
+      code: "gateway_unreachable",
+    };
+  }
+  const statusMatch = /Gateway HTTP (\d+)/.exec(message);
+  if (statusMatch) {
+    const code = /"code"\s*:\s*"([a-z_]+)"/.exec(message)?.[1];
+    if (statusMatch[1] === "403" && code === "subscription_inactive") {
+      return {
+        message: "Your account has no active subscription.",
+        code: "subscription_inactive",
+      };
+    }
+    if (code) {
+      return { message, code };
+    }
+    return { message, code: `http_${statusMatch[1]}` };
+  }
+  return { message, code: "unknown" };
+}
+
+export interface FetchedTierCatalog {
+  allowed: {
+    id: string;
+    displayName?: string;
+    upstreamProvider?: string;
+    upstreamModel?: string;
+    maxOutputTokens?: number;
+    contextWindow?: number;
+  }[];
+  locked: { id: string; reason: string }[];
+}
+
+/**
+ * Tier catalog: allowed tiers from /v1/models (plan-filtered by the
+ * backend, with display names + upstream details) plus tiers that exist on
+ * other plans (public /plans endpoint) but not on the user's — shown
+ * locked with an explanation.
+ */
+export async function fetchTierCatalog(
+  session: GatewaySession,
+): Promise<FetchedTierCatalog> {
+  const models = await session.client.listModels();
+  const allowed = models.map((m) => ({
+    id: m.id,
+    displayName: m.displayName,
+    upstreamProvider: m.upstreamProvider,
+    upstreamModel: m.upstreamModel,
+    maxOutputTokens: m.maxOutputTokens,
+    contextWindow: m.contextWindow,
+  }));
+  const locked: { id: string; reason: string }[] = [];
+  try {
+    const res = await session.fetchImpl(`${session.baseURL}/plans`);
+    if (res.ok) {
+      const plans = (await res.json()) as Array<{
+        name?: unknown;
+        allowed_tier_aliases?: unknown;
+      }>;
+      const mine = new Set(allowed.map((t) => t.id));
+      const others = new Map<string, string>();
+      for (const plan of Array.isArray(plans) ? plans : []) {
+        const name =
+          typeof plan.name === "string" ? plan.name : "another plan";
+        if (!Array.isArray(plan.allowed_tier_aliases)) continue;
+        for (const alias of plan.allowed_tier_aliases) {
+          if (typeof alias === "string" && !mine.has(alias)) {
+            others.set(alias, name);
+          }
+        }
+      }
+      for (const [id, planName] of others) {
+        locked.push({
+          id,
+          reason: `Not available on your plan (available on ${planName}).`,
+        });
+      }
+    }
+  } catch {
+    // plans endpoint unreachable: show only allowed tiers
+  }
+  return { allowed, locked };
+}
+
+export interface FetchedUsage {
+  planName: string;
+  creditLimit: number;
+  creditsUsed: number;
+  creditsRemaining: number;
+  requestsPerMinute: number;
+  periodEnd?: string;
+}
+
+/** Credit/usage snapshot from /usage via the GatewayClient. */
+export async function fetchUsage(
+  session: GatewaySession,
+): Promise<FetchedUsage> {
+  const usage = await session.client.getUsage();
+  return {
+    planName: usage.planName,
+    creditLimit: usage.creditLimit,
+    creditsUsed: usage.creditsUsed,
+    creditsRemaining: usage.creditsRemaining,
+    requestsPerMinute: usage.requestsPerMinute,
+    periodEnd: usage.periodEnd,
   };
 }

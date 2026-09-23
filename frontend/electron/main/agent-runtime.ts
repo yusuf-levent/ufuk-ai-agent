@@ -15,8 +15,8 @@ import {
   buildSystemPrompt,
   ContextManager,
   EvrenGatewayProvider,
-  mapGatewayError,
   ProviderError,
+  ReauthRequiredError,
   ToolRegistry,
   type AgentEvent,
   type ApprovalHandler,
@@ -35,6 +35,7 @@ import {
 } from "@evren/local-runner";
 import type { BrowserWindow } from "electron";
 import { EVENT_CHANNELS } from "@shared/channels";
+import type { ChatErrorInfo } from "@shared/ipc";
 import type { GatewaySession } from "./gateway";
 import type { ProjectManager } from "./projects";
 import type { SettingsStore } from "./settings";
@@ -162,10 +163,18 @@ export class AgentRuntime {
     return { tool: rule.tool, pattern: rule.pattern };
   }
 
-  private emit(conversationId: string, event: AgentEvent): void {
+  private emit(
+    conversationId: string,
+    event: AgentEvent,
+    errorInfo?: ChatErrorInfo,
+  ): void {
     const win = this.deps.win();
     if (win && !win.isDestroyed()) {
-      win.webContents.send(EVENT_CHANNELS.chatEvent, { conversationId, event });
+      win.webContents.send(EVENT_CHANNELS.chatEvent, {
+        conversationId,
+        event,
+        ...(errorInfo ? { errorInfo } : {}),
+      });
     }
   }
 
@@ -309,15 +318,106 @@ export class AgentRuntime {
         );
       }
     } catch (err) {
-      // map gateway transport errors to the friendly messages the CLI
-      // shows; ReauthRequiredError already carries a friendly message
-      const mapped =
-        err instanceof ProviderError ? mapGatewayError(err, tier) : err;
+      // structured info (M8) drives the actionable renderer UI; the
+      // message is desktop-worded (mapGatewayError's texts mention the CLI)
+      if (err instanceof ReauthRequiredError) {
+        this.emit(
+          conversationId,
+          { type: "error", fatal: true, message: err.message },
+          { code: "reauth_required" },
+        );
+        return;
+      }
+      if (err instanceof ProviderError) {
+        const info = providerErrorInfo(err);
+        const message = desktopErrorMessage(err, info, tier);
+        this.emit(
+          conversationId,
+          { type: "error", fatal: true, message },
+          info,
+        );
+        return;
+      }
       this.emit(conversationId, {
         type: "error",
         fatal: true,
-        message: mapped instanceof Error ? mapped.message : String(err),
+        message: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+}
+
+/** Desktop-worded error messages per structured code. */
+function desktopErrorMessage(
+  err: ProviderError,
+  info: ChatErrorInfo | undefined,
+  tier: string,
+): string {
+  switch (info?.code) {
+    case "reauth_required":
+      return "Session expired. Please log in again.";
+    case "quota_exceeded":
+      return "Credit quota exhausted for this billing period. The request was not retried and nothing was charged.";
+    case "model_not_allowed":
+      return `The '${tier}' tier is not available on your plan.`;
+    case "subscription_inactive":
+      return "Your account has no active subscription.";
+    case "rate_limited":
+      return "Rate limited by the gateway.";
+    case "upstream_unavailable":
+      return "Upstream temporarily unavailable (gateway circuit breaker open).";
+    case "upstream_error":
+      return "Upstream provider error — the gateway could not complete the request.";
+    case "timeout":
+      return "Upstream request timed out.";
+    case "gateway_unreachable":
+      return "Cannot reach the backend. Check that the gateway is running.";
+    default:
+      return err.message;
+  }
+}
+
+/** Derive structured error info from a ProviderError (M8 error UX). */
+function providerErrorInfo(err: ProviderError): ChatErrorInfo | undefined {
+  const bodyCode =
+    err.body && typeof err.body === "object"
+      ? ((err.body as { error?: { code?: unknown } }).error?.code as
+          | string
+          | undefined)
+      : undefined;
+  switch (err.status) {
+    case 401:
+      return { code: "reauth_required" };
+    case 402:
+      return { code: "quota_exceeded" };
+    case 403:
+      if (bodyCode === "model_not_allowed") return { code: "model_not_allowed" };
+      if (bodyCode === "subscription_inactive")
+        return { code: "subscription_inactive" };
+      return undefined;
+    case 429:
+      return {
+        code: "rate_limited",
+        ...(err.retryAfterMs !== undefined
+          ? { retryAfterMs: err.retryAfterMs }
+          : {}),
+      };
+    case 502:
+      return { code: "upstream_error" };
+    case 503:
+      return {
+        code: "upstream_unavailable",
+        ...(err.retryAfterMs !== undefined
+          ? { retryAfterMs: err.retryAfterMs }
+          : {}),
+      };
+    case 504:
+      return { code: "timeout" };
+    default:
+      // network-level failure: fetch threw before a response existed
+      if (err.status === undefined && err.message.includes("request failed")) {
+        return { code: "gateway_unreachable" };
+      }
+      return undefined;
   }
 }

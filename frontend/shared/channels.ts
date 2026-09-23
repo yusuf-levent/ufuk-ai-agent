@@ -132,6 +132,19 @@ export const INVOKE_CHANNELS = {
    * Request: { root, id }. Response: ChangedFile[].
    */
   conversationsChangedFiles: "conversations:changed-files",
+  /**
+   * Tier catalog for the selector: allowed tiers (from /v1/models, with
+   * display names + upstream details) and tiers locked by the plan (from
+   * /plans, with an explanation). Request: void. Response: TierCatalog.
+   * Errors: reauth_required, subscription_inactive, gateway_unreachable.
+   */
+  modelsList: "models:list",
+  /**
+   * Credit/usage snapshot from /usage. Request: void. Response: UsageInfo.
+   * Errors: subscription_inactive (no active plan), reauth_required,
+   * gateway_unreachable.
+   */
+  usageGet: "usage:get",
 } as const;
 
 /** Main -> renderer, push events (payload schemas in shared/ipc.ts). */
