@@ -1,5 +1,55 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 6: Chat and agent view
+
+### What was done
+
+**Main process** (`electron/main/agent-runtime.ts`): the agent runtime host,
+wired exactly like the CLI's chat session —
+`EvrenGatewayProvider` (tier alias from request/conversation/settings) +
+`ToolRegistry` (file tools with `ShadowCheckpointStore`, run_command, git
+tools) + `buildSystemPrompt` (reads `<root>/AGENT.md`) + `PermissionEngine`
+(remembered rules live in the conversation store) + `Agent` with history
+resumed from the store. One run per conversation; `stop()` aborts; finished
+turns persist messages + tool calls + audit (partial work persists on
+cancel, same as the CLI). All `AgentEvent`s stream to the renderer over the
+`chat:event` push channel; gateway transport errors map through
+`mapGatewayError` (quota / rate-limit / upstream messages).
+
+- **Approval bridge** (basic M6 scope): the loop's `approval_request` is
+  forwarded; the renderer answers via the new `approvals:respond` channel
+  (Allow once / Always allow — rule derived with `deriveRememberRule` /
+  Deny). Unanswered approvals are denied when the run ends.
+- **Renderer** (`stores/chat.ts`): live per-conversation turn state —
+  streaming text, reasoning, tool steps (name, args summary, result,
+  duration, denied marker), file changes, usage, error. Buffers are capped
+  (200k live chars, 4k step output, 12k rendered markdown with a
+  "show all" toggle) so long outputs never freeze the UI.
+- **Transcript** (upgraded): persisted history + live turn; reasoning
+  collapsed and dimmed; collapsible tool-step timeline; per-turn token
+  counter; error state with the friendly gateway messages.
+- **Composer**: model selector (tier alias), Enter sends / Shift+Enter
+  newline, Stop button, Retry (re-sends the last message), disabled while
+  running. Global shortcuts: Esc stops the run, Ctrl+N new conversation.
+- Copy button for the last assistant reply; the sidebar summary refreshes
+  after each finished run (`reloadActive`).
+- Debug scripts (`scripts/debug-launch.mjs`, `scripts/debug-chat.mjs`):
+  isolated-userData launches; verified the runtime end to end (send →
+  store lookup → error event through the bridge).
+
+Note: the model's stated reason and the full approval modal (exact
+command/path, cwd, risk category, pattern preview) land in Milestone 7.
+
+### Test counts
+
+- frontend: **92 unit** (11 files; +13 M6 tests) + **9 e2e**
+- evren-agent: 235 (untouched), evren-backend: 115 (untouched)
+- lint + typecheck clean
+
+### Commits
+
+- outer repo: M6 chat + agent view
+
 ## 2026-09-23 — Milestone 5: Projects and conversations
 
 ### What was done

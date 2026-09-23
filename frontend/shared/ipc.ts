@@ -187,6 +187,33 @@ export type ConversationRenameRequest = z.infer<
   typeof ConversationRenameRequestSchema
 >;
 
+// ---------------------------------------------------------------------------
+// chat runs & approvals (Milestone 6)
+// ---------------------------------------------------------------------------
+
+export const ChatSendRequestSchema = z.object({
+  root: z.string().min(1),
+  conversationId: z.string().min(1),
+  message: z.string().min(1).max(100_000),
+  /** Tier alias override; falls back to conversation/settings default. */
+  model: z.string().min(1).max(64).optional(),
+});
+export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
+
+export const ChatStopRequestSchema = z.object({
+  conversationId: z.string().min(1),
+});
+export type ChatStopRequest = z.infer<typeof ChatStopRequestSchema>;
+
+export const ApprovalRespondRequestSchema = z.object({
+  conversationId: z.string().min(1),
+  approvalId: z.string().min(1),
+  approved: z.boolean(),
+  /** "Always allow" (this project) — rule derived in main. */
+  remember: z.boolean().default(false),
+});
+export type ApprovalRespondRequest = z.infer<typeof ApprovalRespondRequestSchema>;
+
 export const AppVersionResponseSchema = z.object({
   version: z.string(),
   electron: z.string(),
@@ -240,6 +267,12 @@ export interface InvokeMap {
   };
   "conversations:delete": {
     request: ConversationIdRequest;
+    response: boolean;
+  };
+  "chat:send": { request: ChatSendRequest; response: null };
+  "chat:stop": { request: ChatStopRequest; response: boolean };
+  "approvals:respond": {
+    request: ApprovalRespondRequest;
     response: boolean;
   };
 }

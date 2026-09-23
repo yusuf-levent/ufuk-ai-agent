@@ -7,6 +7,9 @@
 import { ipcMain, shell, dialog, BrowserWindow } from "electron";
 import { z } from "zod";
 import {
+  ApprovalRespondRequestSchema,
+  ChatSendRequestSchema,
+  ChatStopRequestSchema,
   ConversationIdRequestSchema,
   ConversationRenameRequestSchema,
   LoginRequestSchema,
@@ -29,6 +32,7 @@ import {
   type GatewaySession,
 } from "./gateway";
 import { ProjectManager, ProjectValidationError } from "./projects";
+import type { AgentRuntime } from "./agent-runtime";
 
 export interface IpcDeps {
   win: () => BrowserWindow | null;
@@ -47,6 +51,8 @@ export interface IpcDeps {
   versions: () => { version: string; electron: string; node: string };
   /** Project manager (recent projects + conversation stores). */
   projects: ProjectManager;
+  /** Agent runtime (chat runs + approvals). */
+  runtime: AgentRuntime;
 }
 
 type Handler = (
@@ -297,6 +303,50 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return {
         ok: true,
         value: await opened.store.deleteConversation(id),
+      };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // chat runs & approvals (Milestone 6)
+  // -----------------------------------------------------------------------
+
+  register(
+    INVOKE_CHANNELS.chatSend,
+    ChatSendRequestSchema,
+    async (_e, payload) => {
+      const { root, conversationId, message, model } =
+        ChatSendRequestSchema.parse(payload);
+      // fire-and-forget: the run streams its results via chat:event;
+      // the promise only rejects on programming errors (caught above)
+      void deps.runtime.send(root, conversationId, message, model);
+      return { ok: true, value: null };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.chatStop,
+    ChatStopRequestSchema,
+    async (_e, payload) => {
+      const { conversationId } = ChatStopRequestSchema.parse(payload);
+      return { ok: true, value: deps.runtime.stop(conversationId) };
+    },
+  );
+
+  register(
+    INVOKE_CHANNELS.approvalsRespond,
+    ApprovalRespondRequestSchema,
+    async (_e, payload) => {
+      const { conversationId, approvalId, approved, remember } =
+        ApprovalRespondRequestSchema.parse(payload);
+      return {
+        ok: true,
+        value: deps.runtime.respondApproval(
+          conversationId,
+          approvalId,
+          approved,
+          remember,
+        ),
       };
     },
   );

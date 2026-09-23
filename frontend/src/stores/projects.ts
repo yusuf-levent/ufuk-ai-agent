@@ -24,6 +24,8 @@ export interface ProjectsStore {
   loadConversations: (root: string) => Promise<void>;
   newConversation: () => Promise<void>;
   openConversation: (id: string) => Promise<void>;
+  /** Re-fetch the active conversation detail (e.g. after a run finished). */
+  reloadActive: () => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   clearError: () => void;
@@ -50,7 +52,6 @@ export const useProjectsStore = create<ProjectsStore>((set, get) => ({
       set({ projectsLoading: false });
     }
   },
-
   addProjectWithPicker: async () => {
     set({ error: null });
     try {
@@ -134,9 +135,27 @@ export const useProjectsStore = create<ProjectsStore>((set, get) => ({
         set({ error: "Conversation not found." });
         return;
       }
+      // ignore stale responses after switching conversations mid-flight
+      if (get().activeConversationId !== id) return;
       set({ activeConversation: detail });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+
+  reloadActive: async () => {
+    const { activeRoot, activeConversationId } = get();
+    if (!activeRoot || !activeConversationId) return;
+    try {
+      const detail = await api.loadConversation(
+        activeRoot,
+        activeConversationId,
+      );
+      if (!detail) return;
+      if (get().activeConversationId !== activeConversationId) return;
+      set({ activeConversation: detail, conversations: refreshSummary(get(), detail) });
+    } catch {
+      // keep the old detail on refresh failure
     }
   },
 
@@ -193,3 +212,15 @@ export const useProjectsStore = create<ProjectsStore>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+/** Keep the sidebar summary in sync with a reloaded conversation detail. */
+function refreshSummary(
+  state: ProjectsStore,
+  detail: { summary: ConversationSummary; messages: unknown[] },
+): ConversationSummary[] {
+  return state.conversations.some((c) => c.id === detail.summary.id)
+    ? state.conversations.map((c) =>
+        c.id === detail.summary.id ? detail.summary : c,
+      )
+    : [detail.summary, ...state.conversations];
+}

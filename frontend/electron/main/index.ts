@@ -16,6 +16,7 @@ import { installSecurityDefaults } from "./security";
 import { SettingsStore } from "./settings";
 import { buildGatewaySession, type GatewaySession } from "./gateway";
 import { ProjectManager } from "./projects";
+import { AgentRuntime } from "./agent-runtime";
 import { safeStorage } from "electron";
 
 let mainWindow: BrowserWindow | null = null;
@@ -81,6 +82,13 @@ if (!app.requestSingleInstanceLock()) {
       userDataDir,
       safeStorage,
     );
+    const projects = new ProjectManager(userDataDir);
+    const runtime = new AgentRuntime({
+      win: () => mainWindow,
+      settings,
+      session: () => session,
+      projects,
+    });
 
     registerIpcHandlers({
       win: () => mainWindow,
@@ -96,7 +104,8 @@ if (!app.requestSingleInstanceLock()) {
         electron: process.versions.electron ?? "",
         node: process.versions.node ?? "",
       }),
-      projects: new ProjectManager(userDataDir),
+      projects,
+      runtime,
     });
 
     createWindow();

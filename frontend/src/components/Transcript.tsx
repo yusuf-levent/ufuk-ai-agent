@@ -1,34 +1,232 @@
 /**
- * Read-only conversation transcript (M5). Assistant/user text renders
- * through SafeMarkdown (untrusted output); tool messages show as compact
- * system rows. Live streaming, the tool-step timeline and the composer
- * arrive in Milestone 6 — this component renders persisted history.
+ * Conversation transcript (M6): persisted history (read-only) + the live
+ * agent turn — streaming text, collapsed dimmed reasoning, collapsible
+ * tool-step timeline (name, args summary, result summary, duration), the
+ * pending approval bar and per-turn usage. Long outputs are truncated with
+ * a reveal toggle so the DOM never freezes.
  */
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { ChatMessage } from "@shared/ipc";
 import { SafeMarkdown } from "./SafeMarkdown";
+import type { LiveTurn, ToolStep } from "../stores/chat";
 
-function ToolRow({ message }: { message: ChatMessage & { role: "tool" } }) {
-  const output = message.content;
-  const preview = output.length > 200 ? `${output.slice(0, 200)}…` : output;
+const MAX_INLINE = 6_000;
+
+function Reveal({
+  text,
+  limit = MAX_INLINE,
+}: {
+  text: string;
+  limit?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (text.length <= limit) {
+    return <span className="whitespace-pre-wrap break-words">{text}</span>;
+  }
   return (
-    <div className="mx-auto max-w-3xl rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-1.5 text-xs text-neutral-400">
-      <span className="font-mono text-neutral-500">tool:{message.name}</span>
-      <span className="ml-2 whitespace-pre-wrap break-all">{preview}</span>
+    <span>
+      <span className="whitespace-pre-wrap break-words">
+        {expanded ? text : `${text.slice(0, limit)}…`}
+      </span>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="ml-1 text-xs text-sky-400 hover:underline"
+      >
+        {expanded ? "show less" : `show all (${text.length.toLocaleString()} chars)`}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * Markdown with a hard cap: long UNTRUSTED outputs render truncated with a
+ * reveal toggle, so a huge reply never freezes the DOM.
+ */
+function CappedMarkdown({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const capped = text.length > MAX_MARKDOWN;
+  return (
+    <div>
+      <SafeMarkdown text={expanded ? text : text.slice(0, MAX_MARKDOWN)} />
+      {capped && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-xs text-sky-400 hover:underline"
+        >
+          {expanded
+            ? "show less"
+            : `show all (${text.length.toLocaleString()} chars)`}
+        </button>
+      )}
     </div>
   );
 }
 
+const MAX_MARKDOWN = 12_000;
+
+function Reasoning({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <div className="text-xs text-neutral-600">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="italic hover:text-neutral-400"
+      >
+        {open ? "▾ hide reasoning" : "▸ reasoning"}
+      </button>
+      {open && (
+        <p className="mt-1 whitespace-pre-wrap border-l border-neutral-800 pl-2 leading-relaxed opacity-70">
+          <Reveal text={text} />
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Step({ step }: { step: ToolStep }) {
+  const [open, setOpen] = useState(false);
+  const statusIcon =
+    step.status === "running"
+      ? "⟳"
+      : step.status === "denied"
+        ? "⊘"
+        : step.ok
+          ? "✓"
+          : "✗";
+  const statusColor =
+    step.status === "denied"
+      ? "text-amber-500"
+      : step.status === "running"
+        ? "text-sky-400"
+        : step.ok
+          ? "text-neutral-500"
+          : "text-red-400";
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-900/60 text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-neutral-800/50"
+      >
+        <span className={statusColor}>{statusIcon}</span>
+        <span className="font-mono text-neutral-300">{step.name}</span>
+        <span className="min-w-0 flex-1 truncate text-neutral-500">
+          {step.argsSummary}
+        </span>
+        {step.durationMs !== null && (
+          <span className="shrink-0 text-neutral-600">{step.durationMs}ms</span>
+        )}
+        <span className="shrink-0 text-neutral-600">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="space-y-1 border-t border-neutral-800 px-2 py-1.5">
+          {step.output && (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-neutral-400">
+              {step.output.length > 4_000
+                ? `${step.output.slice(0, 4_000)}…`
+                : step.output}
+            </pre>
+          )}
+          {step.status === "running" && (
+            <p className="text-[11px] text-sky-400">running…</p>
+          )}
+          {step.status === "denied" && (
+            <p className="text-[11px] text-amber-500">
+              denied — the request was blocked
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolRow({ message }: { message: ChatMessage & { role: "tool" } }) {
+  const output = message.content;
+  return (
+    <div className="mx-auto max-w-3xl rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-1.5 text-xs text-neutral-400">
+      <span className="font-mono text-neutral-500">tool:{message.name}</span>
+      <span className="ml-2 whitespace-pre-wrap break-all">
+        {output.length > 200 ? `${output.slice(0, 200)}…` : output}
+      </span>
+    </div>
+  );
+}
+
+function UsageBar({ turn }: { turn: LiveTurn }) {
+  const usage = turn.usage;
+  if (!usage) return null;
+  return (
+    <div className="flex items-center gap-3 text-[10px] text-neutral-600">
+      <span>
+        tokens: {(usage.promptTokens ?? 0).toLocaleString()} in +{" "}
+        {(usage.completionTokens ?? 0).toLocaleString()} out
+      </span>
+      {usage.totalTokens !== undefined && (
+        <span>({usage.totalTokens.toLocaleString()} total)</span>
+      )}
+    </div>
+  );
+}
+
+export const LiveTurnView = memo(function LiveTurnView({
+  turn,
+}: {
+  turn: LiveTurn;
+}) {
+  const hasContent =
+    turn.text ||
+    turn.reasoning ||
+    turn.steps.length > 0 ||
+    turn.fileChanges.length > 0 ||
+    turn.usage ||
+    turn.error ||
+    turn.running;
+  if (!hasContent) return null;
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-3">
+      <Reasoning text={turn.reasoning} />
+      {turn.steps.length > 0 && (
+        <div className="space-y-1">
+          {turn.steps.map((s) => (
+            <Step key={s.id} step={s} />
+          ))}
+        </div>
+      )}
+      {turn.text && (
+        <div className="self-start text-sm text-neutral-100">
+          <CappedMarkdown text={turn.text} />
+        </div>
+      )}
+      <UsageBar turn={turn} />
+      {turn.error && (
+        <div
+          role="alert"
+          className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-xs text-red-300"
+        >
+          {turn.error}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export const Transcript = memo(function Transcript({
   messages,
+  liveTurn,
 }: {
   messages: ChatMessage[];
+  liveTurn?: LiveTurn;
 }) {
-  if (messages.length === 0) {
+  const empty = messages.length === 0 && !liveTurn;
+  if (empty) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-neutral-600">
-        This conversation is empty — send a message to start (chat arrives in
-        the next milestone).
+        This conversation is empty — send a message below to start.
       </div>
     );
   }
@@ -43,7 +241,7 @@ export const Transcript = memo(function Transcript({
               if (!m.content) return null; // pure tool-call turn
               return (
                 <div key={i} className="self-start text-sm text-neutral-100">
-                  <SafeMarkdown text={m.content} />
+                  <CappedMarkdown text={m.content} />
                 </div>
               );
             }
@@ -52,12 +250,11 @@ export const Transcript = memo(function Transcript({
                 key={i}
                 className="self-end rounded-xl bg-sky-600/90 px-4 py-2 text-sm text-white"
               >
-                <div className="whitespace-pre-wrap break-words">
-                  {m.content}
-                </div>
+                <Reveal text={m.content} />
               </div>
             );
           })}
+        {liveTurn && <LiveTurnView turn={liveTurn} />}
       </div>
     </div>
   );

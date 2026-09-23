@@ -56,6 +56,9 @@ describe("channel allowlists", () => {
       "conversations:load",
       "conversations:rename",
       "conversations:delete",
+      "chat:send",
+      "chat:stop",
+      "approvals:respond",
     ];
     const invokeValues = Object.values(INVOKE_CHANNELS);
     // every InvokeMap key is a registered channel...

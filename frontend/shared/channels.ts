@@ -84,14 +84,30 @@ export const INVOKE_CHANNELS = {
    * Response: boolean.
    */
   conversationsDelete: "conversations:delete",
+  /**
+   * Send a user message to a conversation (starts an agent run). Request:
+   * { root, conversationId, message, model? }. Response: null. All further
+   * updates arrive as chat:event pushes (agent events + run lifecycle).
+   */
+  chatSend: "chat:send",
+  /**
+   * Abort the active run of a conversation. Partial work is persisted.
+   * Request: { conversationId }. Response: boolean (false = no run).
+   */
+  chatStop: "chat:stop",
+  /**
+   * Answer an approval_request pushed via chat:event. Request:
+   * { conversationId, approvalId, approved, remember }. Response: boolean.
+   */
+  approvalsRespond: "approvals:respond",
 } as const;
 
 /** Main -> renderer, push events (payload schemas in shared/ipc.ts). */
 export const EVENT_CHANNELS = {
   /**
-   * Agent run events for the active conversation (message deltas, tool
-   * calls/results, approvals, usage, errors, done). Payload: ChatEvent.
-   * Wired up in Milestone 5/6; declared now to freeze the contract.
+   * Agent run events for a conversation: message deltas, reasoning deltas,
+   * tool calls/results, approval requests, usage, errors, done — tagged
+   * with the conversationId (payload: ChatEventPayload).
    */
   chatEvent: "chat:event",
 } as const;

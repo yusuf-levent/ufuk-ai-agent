@@ -106,6 +106,25 @@ export const api = {
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.conversationsDelete, { root, id }),
     ) as Promise<boolean>,
+  sendChat: (req: {
+    root: string;
+    conversationId: string;
+    message: string;
+    model?: string;
+  }) => unwrap(bridge().invoke(INVOKE_CHANNELS.chatSend, req)),
+  stopChat: (conversationId: string) =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.chatStop, { conversationId }),
+    ) as Promise<boolean>,
+  respondApproval: (req: {
+    conversationId: string;
+    approvalId: string;
+    approved: boolean;
+    remember: boolean;
+  }) =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.approvalsRespond, req)) as Promise<
+      boolean
+    >,
   subscribe: (<C extends EventChannel>(
     channel: C,
     listener: (payload: EventMap[C]) => void,
