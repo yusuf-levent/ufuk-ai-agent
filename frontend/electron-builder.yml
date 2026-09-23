@@ -1,0 +1,28 @@
+# electron-builder configuration (NSIS installer, Windows only).
+#
+# Notes:
+# - The installer is UNSIGNED: no code-signing certificate exists yet.
+#   Windows SmartScreen will warn on first run. TODO: buy a certificate
+#   (OV/EV), add win.certificateFile / signtoolOptions, and enable
+#   auto-update via electron-updater (needs signed builds + a feed URL).
+# - better-sqlite3 is intentionally NOT a dependency of the app: it cannot
+#   be rebuilt for Electron 44's ABI on this machine (no VS toolchain, no
+#   electron-v149 prebuild published). The agent persists via the designed
+#   JSONL fallback. Re-add it when an Electron 44 prebuild exists.
+appId: org.ufuk.desktop
+productName: Ufuk
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  artifactName: Ufuk-Setup-${version}.${ext}

@@ -63,7 +63,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await get().refreshSession();
   },
   logout: async () => {
-    await api.logout();
+    try {
+      await api.logout();
+    } catch {
+      // the main process clears local tokens first; a failed revoke call
+      // must not keep the (now stale) session in the renderer
+    }
     set({ session: null });
   },
 }));

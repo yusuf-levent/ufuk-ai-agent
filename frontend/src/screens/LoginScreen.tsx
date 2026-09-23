@@ -119,6 +119,7 @@ export function LoginScreen({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={inputClass}
+              placeholder="••••••••"
               autoComplete={
                 mode === "login" ? "current-password" : "new-password"
               }

@@ -24,7 +24,7 @@ const render = async (): Promise<void> => {
   root = createRoot(container);
   await act(async () => {
     root?.render(
-      <ChangesPanel project={project} conversationId="c_1" liveSteps={[]} />,
+      <ChangesPanel project={project} conversationId="c_1" liveSteps={[]} turnActive={false} />,
     );
   });
 };
@@ -154,6 +154,7 @@ describe("ChangesPanel", () => {
         <ChangesPanel
           project={project}
           conversationId="c_1"
+          turnActive={false}
           liveSteps={[
             {
               id: "t9",

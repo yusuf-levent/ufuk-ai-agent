@@ -251,6 +251,7 @@ export function MainShell({
           project={activeProject}
           conversationId={activeConversationId}
           liveSteps={turn?.steps ?? []}
+          turnActive={turn?.running ?? false}
           onConversationDeleted={() => void reloadActive()}
         />
       )}

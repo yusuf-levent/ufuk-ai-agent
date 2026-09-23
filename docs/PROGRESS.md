@@ -1,5 +1,112 @@
 # Ufuk — Progress
 
+## 2026-09-23 — Milestone 10: E2E, packaging, launch (FINAL)
+
+### 1. End-to-end scenario (REAL stack, REAL upstream)
+
+`frontend/tests/e2e/fix-it.spec.ts` — **passed** against the real local
+stack: docker-compose backend on :8000 + the **real upstream model
+provider** (evren-llmapi, tier `fast` = deepseek-v4-flash). No mock
+gateway was needed.
+
+Flow (test account `ufuk-e2e@example.com` created via the API, admin
+assigns the `pro` plan; fresh copy of
+`evren-agent/apps/cli/fixtures/sample-repo` per run):
+
+1. first-run privacy gate → acknowledge (screenshot 01)
+2. login (02)
+3. add sample project via the (stubbed) native folder picker (03)
+4. send "The test in this repo is failing. Fix it and verify." (04)
+5. the agent reads the repo (list_dir, read_file ×4), fixes `sum.js`
+   (`a - b` → `a + b` via edit_file, approved with **Allow once**), runs
+   `npm test` (approved, passes, 1072ms), writes a root-cause summary
+   (05) — 12,189 prompt + 510 completion tokens, 6.6 credits
+6. diff viewer shows the removed buggy line and the added fix (06)
+7. **Undo last change** reverts `sum.js` to the broken version (verified
+   on disk) (07)
+
+Screenshots: `docs/screenshots/01-privacy-gate.png` … `07-undo.png`.
+
+### 2. Packaging
+
+- electron-builder NSIS, **unsigned** (no certificate — TODO).
+- Installer: **`frontend/release/Ufuk-Setup-0.1.0.exe` (106.42 MB)**,
+  oneClick=false, per-user, selectable install dir.
+- The packaged app (`release/win-unpacked/Ufuk.exe`) launches and runs
+  against the local stack.
+- **better-sqlite3 is not bundled**: it cannot be rebuilt for Electron
+  44's ABI on this machine (no VS Build Tools, no electron-v149 prebuild
+  published yet). The app persists via the designed JSONL fallback
+  (`openConversationStore` prefers SQLite, falls back automatically).
+  Re-add the dependency when an Electron 44 prebuild exists or install VS
+  Build Tools.
+- TODO: code signing (OV/EV certificate) + auto-update (electron-updater
+  needs signed builds and a feed URL).
+
+### 3. Launch (current state on this machine)
+
+- Backend stack: **running** (docker compose: postgres :5433,
+  redis :6380, api :8000, health 200).
+- App: **running** — packaged build, window "Ufuk".
+- Restart commands:
+  ```powershell
+  # backend
+  cd "C:\Users\Yusuf\Desktop\evren agent system\evren-backend"
+  docker compose up -d
+  # app (packaged)
+  & "C:\Users\Yusuf\Desktop\evren agent system\frontend\release\win-unpacked\Ufuk.exe"
+  # or from source
+  cd "C:\Users\Yusuf\Desktop\evren agent system\frontend"
+  pnpm build; pnpm start   # (electron out/main/index.js)
+  # or dev mode
+  pnpm --filter frontend dev
+  ```
+
+### 4. Final report
+
+**What works** (all test counts exact):
+
+| Component | Tests |
+|---|---|
+| evren-agent (agent-core + local-runner) | **237 passed** (76 + 161) |
+| evren-backend | **115 passed** |
+| frontend unit (vitest) | **128 passed** (15 files) |
+| frontend e2e (Playwright Electron) | **12 passed** (11 smoke + 1 full scenario) |
+
+- Milestones 1–10 complete: backend fixes, agent security suite, desktop
+  app skeleton + security baseline, auth/settings/privacy, projects &
+  conversations, streaming chat with tool timeline/reasoning/stop/retry,
+  approvals (full modal with risk/pattern/reason), diff viewer + undo,
+  tiers/credits/actionable errors, hardening pass + audits, E2E +
+  packaging + launch.
+- Security posture in `docs/SECURITY.md`; per-milestone details in the
+  entries below.
+
+**Not done / known gaps** (prioritized next steps):
+
+1. **Code signing + auto-update** — installer is unsigned (SmartScreen
+   warns); electron-updater needs a certificate and a feed URL.
+2. **MCP** (Model Context Protocol servers) — out of scope by brief.
+3. **GitHub integration** (PRs, issues) — out of scope by brief.
+4. **Scheduled tasks** — out of scope by brief.
+5. **Cloud mode** (remote agents) — not started.
+6. **Payments/billing UI** — plans are admin-assigned only.
+7. **better-sqlite3 in the desktop app** — blocked on an Electron 44
+   (ABI 149) prebuild or VS Build Tools; JSONL fallback active (tested).
+8. **vitest upgrade to ≥4.1.11** — clears the 2 moderate dev-only audit
+   findings (GHSA-82fw-gwwq-j7x9).
+9. Operational notes: the backend pytest suite runs against the SAME
+   database as the live stack (conftest points at :5433) — running tests
+   can wipe seeded plans (re-run `scripts/seed.py` after). Long-term: use
+   a separate test database.
+10. The model's approval "reason" in the modal is the assistant text
+    streamed before the request (best available signal; the agent loop
+    does not carry a per-tool-call reason field).
+
+### Commits
+
+- outer repo: M10 e2e + packaging + launch, final docs, screenshots
+
 ## 2026-09-23 — Milestone 9: Hardening pass
 
 ### What was done

@@ -41,16 +41,30 @@ pnpm -r test
 ```powershell
 cd frontend
 pnpm install                  # installs into the root workspace
-pnpm test                     # 52 unit tests (vitest)
+pnpm test                     # 128 unit tests (vitest)
 pnpm typecheck && pnpm lint
 pnpm build                    # build out/{main,preload,renderer}
-pnpm e2e                      # Playwright Electron smoke tests (builds first: pnpm build)
-pnpm dev                      # run the app in dev mode (backend not required for the shell)
+pnpm start                    # run the built app (backend on :8000)
+pnpm dev                      # run the app in dev mode
+
+# e2e (Playwright Electron; needs the backend running + seeded):
+pnpm e2e:smoke                # 11 security/IPC/project smoke tests
+pnpm e2e:fix-it               # full scenario vs the REAL upstream:
+                              # login -> fix a failing test -> diff -> undo
+                              # (screenshots to docs/screenshots)
+
+# packaging (unsigned NSIS installer):
+pnpm package                  # -> release/Ufuk-Setup-0.1.0.exe
 ```
 
 Default backend URL is `http://localhost:8000` (configurable in Settings;
 the renderer never talks to the backend directly — everything goes through
-the main process).
+the main process). The e2e fix-it test expects seeded plans
+(`evren-backend: python scripts/seed.py`) and creates its own test account.
+
+**Note:** the backend pytest suite runs against the same Postgres the
+docker stack uses — running the backend tests can wipe seeded plans; re-run
+`scripts/seed.py` afterwards.
 
 ## Git strategy
 

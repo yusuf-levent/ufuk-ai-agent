@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
+    "start": "electron out/main/index.js",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
@@ -19,12 +20,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "rebuild:native": "electron-builder install-app-deps",
+    "e2e:smoke": "playwright test tests/e2e/smoke.spec.ts",
+    "e2e:fix-it": "playwright test tests/e2e/fix-it.spec.ts",
     "package": "electron-vite build && electron-builder --win nsis"
   },
-  "dependencies": {
-    "better-sqlite3": "^12.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@evren/agent-core": "workspace:*",

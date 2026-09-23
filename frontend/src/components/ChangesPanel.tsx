@@ -5,7 +5,7 @@
  * mode switch (ask every time / auto-accept edits inside the workspace —
  * there is intentionally NO allow-everything mode).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../ipc/client";
 import type {
   CheckpointInfo,
@@ -30,11 +30,14 @@ export function ChangesPanel({
   project,
   conversationId,
   liveSteps,
+  turnActive,
   onConversationDeleted,
 }: {
   project: ProjectInfo;
   conversationId: string | null;
   liveSteps: ToolStep[];
+  /** True while the conversation's agent run is active (refresh on end). */
+  turnActive: boolean;
   onConversationDeleted?: () => void;
 }) {
   const [tab, setTab] = useState<"files" | "history">("files");
@@ -77,6 +80,20 @@ export function ChangesPanel({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.root, conversationId]);
+
+  // re-fetch when a run finishes (changed files / checkpoints are new
+  // then). The main process persists tool calls just AFTER the done event,
+  // so a delayed second fetch closes the race.
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (wasActive.current && !turnActive) {
+      void refresh();
+      const timer = setTimeout(() => void refresh(), 1500);
+      return () => clearTimeout(timer);
+    }
+    wasActive.current = turnActive;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnActive]);
 
   // live file changes from the current run appear immediately
   const livePaths = liveSteps

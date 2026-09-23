@@ -69,6 +69,7 @@ export function installBridge(overrides: BridgeOverrides = {}): {
           return { ok: true, value: null };
         case "auth:login":
         case "auth:register":
+        case "auth:logout":
           return { ok: true, value: null };
         case "app:version":
           return {

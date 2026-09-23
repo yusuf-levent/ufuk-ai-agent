@@ -1,16 +1,22 @@
-# Ufuk — Status (2026-09-23)
+# Ufuk — Status (2026-09-23, final)
 
-Product name: **Ufuk**. The desktop app lives in `frontend/` (skeleton +
-security baseline done in Milestone 3), a sibling of `evren-agent/` and
-`evren-backend/` in this workspace.
+Product name: **Ufuk**. The desktop app lives in `frontend/` — Milestones
+1–10 complete (skeleton + security baseline, auth/settings/privacy,
+projects & conversations, chat & agent view, approvals/diffs/undo,
+tiers/credits/errors, hardening, E2E + packaging + launch).
 
 ## Baseline (verified today)
 
 | Component | Stack | Tests |
 |---|---|---|
-| `evren-agent` | TypeScript, pnpm monorepo (agent-core, local-runner, apps/cli) | **231 passed** (agent-core 76, local-runner 147 + 8 platform-skips) |
+| `evren-agent` | TypeScript, pnpm monorepo (agent-core, local-runner, apps/cli) | **237 passed** (agent-core 76, local-runner 161) |
 | `evren-backend` | Python 3.12 / FastAPI, Postgres 17 + Redis 7 (Docker) | **115 passed** |
-| `frontend` | Electron 44 + React 18 + TS strict (Milestone 3 done) | **52 unit + 7 e2e passed** |
+| `frontend` | Electron 44 + React 18 + TS strict | **128 unit + 12 e2e passed** |
+
+Tooling: Node 24.11.1, pnpm 12.4.2, Python 3.12.7, Docker 29.6.2. The
+backend stack (postgres :5433, redis :6380, api :8000) is running on this
+machine, and the packaged app is running against it. No git remotes are
+configured anywhere — nothing gets pushed.
 
 Tooling: Node 24.11.1, pnpm 12.4.2, Python 3.12.7, Docker 29.6.2. The backend
 stack (postgres :5433, redis :6380, api :8000) is currently running on this
@@ -89,12 +95,12 @@ anything else) — nothing gets pushed.
 
 ### Frontend
 
-- Milestone 3 done (skeleton + security baseline); see docs/PROGRESS.md.
-- Remaining for M4–M9: login/settings/privacy UI, projects & conversations,
-  chat & agent view, approvals/diffs/undo, tiers/credits/errors, hardening.
-- better-sqlite3 has no Electron-44 (ABI 149) prebuild and no VS Build
-  Tools on this machine → the app runs on the tested JSONL fallback until
-  that changes.
+- Milestones 3–10 done; see docs/PROGRESS.md for details.
+- better-sqlite3 is not bundled (no Electron 44 / ABI 149 prebuild, no VS
+  Build Tools) — the app runs on the tested JSONL fallback.
+- Installer: `frontend/release/Ufuk-Setup-0.1.0.exe` (unsigned, 106 MB).
+- Open follow-ups: code signing + auto-update, MCP, GitHub integration,
+  scheduled tasks, cloud mode, payments, vitest ≥4.1.11 upgrade (audit).
 
 ## Risks
 
