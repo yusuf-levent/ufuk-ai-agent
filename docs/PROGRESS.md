@@ -1,5 +1,54 @@
 # Ufuk — Progress
 
+## 2026-09-23 — UX/bugfix pass (issue brief, 4 issues) — PLAN
+
+Real-usage feedback pass. Scope: exactly the four briefs below; no MCP /
+GitHub / scheduling / cloud / signing / payments.
+
+1. **Top-level nav: Chat vs Projects.** Two modes behind a segmented
+   control at the top of the sidebar. **Decision: Chat mode is
+   tool-less** — no file/shell/git tools are registered for chat runs
+   (simplest with the current architecture: the Agent's ToolRegistry and
+   PermissionGate are optional; the runtime branches once on the root).
+   Chat conversations persist in a dedicated app-owned store
+   (`userData/chat-workspace` root, store under `userData/db/<hash>`,
+   same engine), reached through the EXISTING conversations/chat IPC
+   channels via the reserved root id `"ufuk:chat"` (main maps it to the
+   real dir; it never enters projects.json, so Projects mode is
+   untouched). Renderer: `activeMode` setting (`chat` | `projects`),
+   separate chat/projects store slices so switching never loses state.
+   Migration: pre-nav installs (settings.json without `activeMode`)
+   default to `projects` when projects exist, else `chat`; project
+   data/conversations do not move at all (zero loss by construction) —
+   test seeds a pre-change userData and asserts everything still loads.
+2. **Session persistence across restart.** Root causes found: (a)
+   userData dir differs per launch mode (`%APPDATA%\Ufuk` packaged,
+   `%APPDATA%\ufuk` for `pnpm start`, `%APPDATA%\Electron` for some dev
+   launches) so tokens/settings/projects are fragmented; (b) refresh
+   failure (ReauthRequiredError) is swallowed by fetchSessionInfo and
+   silently drops to the login screen. Fix: pin userData to one
+   canonical dir in every launch mode (legacy dirs merged in, newest
+   wins, zero loss — migration + test), and make `auth:session` return a
+   reason (`expired` / `unreachable`) so the login screen can say
+   "session expired, please log in again" or offer a retry instead of a
+   silent logout. Tests: simulated restart (new session object on the
+   same dir) restores the session when tokens are valid; a real
+   launch → login → close → relaunch e2e.
+3. **Credit indicator rework.** Remaining-first wording
+   ("82 credits left of 100"), color only warns near exhaustion
+   (amber <25% left, red <10% left), a click breakdown (plan, used,
+   remaining, reset date), and a distinct zero-credit state ("Monthly
+   credits used up — resets on <date>") instead of a full bar. Unit
+   tests for the low/zero states.
+4. **Settings entry bottom-left.** Account area (avatar + email + gear)
+   at the bottom of the sidebar, Codex-style; header keeps title /
+   credits / copy / logout. SettingsDialog itself unchanged.
+
+Verification: frontend unit + typecheck + lint, e2e smoke + fix-it
+(real stack), new session-restore e2e, agent + backend suites re-run
+(re-seed plans after backend tests), screenshots of the new
+nav/indicator/settings into docs/screenshots/.
+
 ## 2026-09-23 — Milestone 10: E2E, packaging, launch (FINAL)
 
 ### 1. End-to-end scenario (REAL stack, REAL upstream)

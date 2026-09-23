@@ -187,9 +187,15 @@ test("full scenario: login -> fix the failing test -> diff -> undo", async () =>
   await win.locator('input[type="password"]').fill(USER_PASSWORD);
   await win.getByRole("button", { name: "Log in", exact: true }).click();
 
-  // 3. main shell -> add the sample project (picker stubbed)
+  // 3. main shell: fresh install defaults to Chat mode — switch to
+  //    Projects (the folder + agent flow), then add the sample project
+  //    (picker stubbed)
+  const projectsTab = win.getByRole("tab", { name: "Projects" });
+  await expect(projectsTab).toBeVisible({ timeout: 30_000 });
+  await shot("03-main-shell-chat-mode.png");
+  await projectsTab.click();
   await expect(win.getByRole("button", { name: "+ Add" })).toBeVisible({
-    timeout: 30_000,
+    timeout: 15_000,
   });
   await shot("03-main-shell.png");
   await win.getByRole("button", { name: "+ Add" }).click();

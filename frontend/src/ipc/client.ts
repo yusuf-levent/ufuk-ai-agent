@@ -14,6 +14,7 @@ import type {
   ProjectInfo,
   RegisterRequest,
   SessionInfo,
+  SessionSnapshot,
   Settings,
   SettingsPatch,
   TierCatalog,
@@ -63,7 +64,7 @@ export const api = {
   session: () =>
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.authSession),
-    ) as Promise<SessionInfo | null>,
+    ) as Promise<SessionSnapshot>,
   privacyInfo: () =>
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.privacyInfo),
@@ -124,16 +125,14 @@ export const api = {
     approved: boolean;
     remember: boolean;
   }) =>
-    unwrap(bridge().invoke(INVOKE_CHANNELS.approvalsRespond, req)) as Promise<
-      boolean
-    >,
-  approvalPreview: (req: {
-    conversationId: string;
-    approvalId: string;
-  }) =>
     unwrap(
-      bridge().invoke(INVOKE_CHANNELS.approvalsPreview, req),
-    ) as Promise<{ tool: string; pattern?: string } | null>,
+      bridge().invoke(INVOKE_CHANNELS.approvalsRespond, req),
+    ) as Promise<boolean>,
+  approvalPreview: (req: { conversationId: string; approvalId: string }) =>
+    unwrap(bridge().invoke(INVOKE_CHANNELS.approvalsPreview, req)) as Promise<{
+      tool: string;
+      pattern?: string;
+    } | null>,
   setPermissionMode: (root: string, mode: "ask" | "auto-edits") =>
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.projectsSetPermissionMode, {
@@ -153,11 +152,7 @@ export const api = {
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.checkpointsRevert, { root, id }),
     ) as Promise<CheckpointInfo | null>,
-  diffFile: (req: {
-    root: string;
-    path: string;
-    checkpointId?: string;
-  }) =>
+  diffFile: (req: { root: string; path: string; checkpointId?: string }) =>
     unwrap(
       bridge().invoke(INVOKE_CHANNELS.checkpointsDiff, req),
     ) as Promise<DiffResponse>,
@@ -167,9 +162,7 @@ export const api = {
         root,
         id,
       }),
-    ) as Promise<
-      { path: string; tool: string; ok: boolean; at: string }[]
-    >,
+    ) as Promise<{ path: string; tool: string; ok: boolean; at: string }[]>,
   tierCatalog: () =>
     unwrap(bridge().invoke(INVOKE_CHANNELS.modelsList)) as Promise<{
       allowed: {
@@ -200,6 +193,7 @@ export const api = {
 export type {
   AppVersionResponse,
   SessionInfo,
+  SessionSnapshot,
   Settings,
   PrivacyInfo,
   ProjectInfo,

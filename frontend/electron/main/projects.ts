@@ -20,6 +20,7 @@ import {
   type OpenedStore,
 } from "@evren/local-runner";
 import type { ConversationSummary } from "@evren/agent-core";
+import { CHAT_ROOT_ID } from "@shared/ipc";
 
 /** Per-project permission mode ('ask' | 'auto-edits'). */
 export type PermissionMode = "ask" | "auto-edits";
@@ -63,6 +64,8 @@ const ProjectFileSchema = z.object({
 export class ProjectManager {
   private readonly file: string;
   private readonly baseDir: string;
+  /** App-owned workspace dir backing Chat-mode conversations. */
+  private readonly chatWorkspaceDir: string;
   private entries: ProjectEntry[] | null = null;
   private readonly stores = new Map<string, Promise<OpenedStore>>();
   private readonly checkpointStores = new Map<string, ShadowCheckpointStore>();
@@ -77,6 +80,23 @@ export class ProjectManager {
   ) {
     this.file = path.join(userDataDir, "projects.json");
     this.baseDir = path.join(userDataDir, "db");
+    this.chatWorkspaceDir = path.join(userDataDir, "chat-workspace");
+  }
+
+  /** true when the root id refers to the app-owned Chat workspace. */
+  isChatRoot(root: string): boolean {
+    return root === CHAT_ROOT_ID;
+  }
+
+  /** The real (existing, app-owned) workspace dir behind CHAT_ROOT_ID. */
+  chatRootPath(): string {
+    mkdirSync(this.chatWorkspaceDir, { recursive: true });
+    return this.chatWorkspaceDir;
+  }
+
+  /** Map a renderer-supplied root (sentinel or project path) to a real dir. */
+  private normalizeRoot(root: string): string {
+    return this.isChatRoot(root) ? this.chatRootPath() : path.resolve(root);
   }
 
   /** Recent projects, most recently opened first, with git-repo flag. */
@@ -136,13 +156,14 @@ export class ProjectManager {
 
   /** Forget a project (its conversations stay on disk, untouched). */
   remove(root: string): void {
-    const normalized = path.resolve(root);
+    const normalized = path.resolve(root); // the sentinel is never a project
     this.save(this.load().filter((e) => e.root !== normalized));
     this.stores.delete(normalized);
   }
 
   /** Mark a project as opened now (drives the recents ordering). */
   touch(root: string): void {
+    if (this.isChatRoot(root)) return; // chat has no recents ordering
     const normalized = path.resolve(root);
     const entries = this.load();
     const entry = entries.find((e) => e.root === normalized);
@@ -191,7 +212,7 @@ export class ProjectManager {
 
   /** The conversation store for a known project root (cached). */
   store(root: string): Promise<OpenedStore> {
-    const normalized = path.resolve(root);
+    const normalized = this.normalizeRoot(root);
     let opened = this.stores.get(normalized);
     if (!opened) {
       const workspace = new WorkspaceRoot(normalized);
@@ -205,6 +226,17 @@ export class ProjectManager {
 
   /** Validate a renderer-supplied project root before using it. */
   requireKnownRoot(root: string): WorkspaceRoot {
+    // the Chat workspace is app-owned and always known
+    if (this.isChatRoot(root)) {
+      try {
+        return new WorkspaceRoot(this.chatRootPath());
+      } catch (err) {
+        throw new ProjectValidationError(
+          "not_a_directory",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
     const normalized = path.resolve(root);
     const known = this.load().some((e) => e.root === normalized);
     if (!known) {

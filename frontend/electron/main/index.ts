@@ -17,6 +17,7 @@ import { SettingsStore } from "./settings";
 import { buildGatewaySession, type GatewaySession } from "./gateway";
 import { ProjectManager } from "./projects";
 import { AgentRuntime } from "./agent-runtime";
+import { migrateActiveMode } from "./migrate";
 import { safeStorage } from "electron";
 
 let mainWindow: BrowserWindow | null = null;
@@ -77,12 +78,16 @@ if (!app.requestSingleInstanceLock()) {
 
     const userDataDir = app.getPath("userData");
     const settings = new SettingsStore(userDataDir);
+    const projects = new ProjectManager(userDataDir);
+    // one-time nav migration (Chat/Projects rework): installs created
+    // before the top-level mode switch keep landing in Projects mode
+    // (their data is all project data); fresh installs default to Chat.
+    migrateActiveMode(settings, projects.list().length > 0);
     let session: GatewaySession = buildGatewaySession(
       settings.load(),
       userDataDir,
       safeStorage,
     );
-    const projects = new ProjectManager(userDataDir);
     const runtime = new AgentRuntime({
       win: () => mainWindow,
       settings,

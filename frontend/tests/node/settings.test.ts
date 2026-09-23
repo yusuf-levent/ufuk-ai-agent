@@ -25,6 +25,7 @@ describe("SettingsStore", () => {
       defaultTier: "fast",
       permissionMode: "ask",
       privacyAcknowledged: false,
+      activeMode: "chat",
     });
   });
 

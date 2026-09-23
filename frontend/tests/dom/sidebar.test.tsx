@@ -1,6 +1,7 @@
 /**
- * Sidebar (M5): project list with git warning, conversation list with
- * rename/delete, selection wiring through the mocked bridge.
+ * Sidebar (M5 + nav rework): top-level Chat/Projects switcher; project
+ * list with git warning, conversation list with rename/delete, selection
+ * wiring through the mocked bridge — for BOTH modes.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +9,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installBridge } from "./helpers/mock-bridge";
 import { Sidebar } from "../../src/components/Sidebar";
 import { useProjectsStore } from "../../src/stores/projects";
+import { useAppStore } from "../../src/stores/app";
 import type { ConversationSummary, ProjectInfo } from "@shared/ipc";
 
 (globalThis as Record<string, unknown>)["IS_REACT_ACT_ENVIRONMENT"] = true;
@@ -58,6 +60,14 @@ const clickText = async (text: string): Promise<void> => {
   });
 };
 
+const clickRole = async (name: string): Promise<void> => {
+  await act(async () => {
+    [...container.querySelectorAll("button")]
+      .find((b) => b.textContent?.trim() === name)
+      ?.click();
+  });
+};
+
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -69,13 +79,18 @@ beforeEach(() => {
     }),
   });
   invoke = bridge.invoke;
-  // seed the store directly (load wiring is covered by e2e)
+  // seed the store directly (load wiring is covered by e2e); the sidebar
+  // tests for the projects section run in projects mode
+  useAppStore.setState({ mode: "projects" });
   useProjectsStore.setState({
     projects: projectsList,
     activeRoot: null,
     conversations: [],
     activeConversationId: null,
     activeConversation: null,
+    chatConversations: [],
+    activeChatConversationId: null,
+    activeChatConversation: null,
     error: null,
   });
 });
@@ -86,12 +101,16 @@ afterEach(() => {
     root = null;
   }
   container.remove();
+  useAppStore.setState({ mode: "chat" });
   useProjectsStore.setState({
     projects: [],
     activeRoot: null,
     conversations: [],
     activeConversationId: null,
     activeConversation: null,
+    chatConversations: [],
+    activeChatConversationId: null,
+    activeChatConversation: null,
     error: null,
   });
 });
@@ -196,5 +215,106 @@ describe("Sidebar", () => {
     const calls = invoke.mock.calls.filter(([c]) => c === "conversations:load");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[1]).toEqual({ root: "C:\\code\\app", id: "c_1" });
+  });
+});
+
+describe("Sidebar mode switcher (nav rework)", () => {
+  it("renders the Chat/Projects segmented control with the active mode highlighted", async () => {
+    useAppStore.setState({ mode: "chat" });
+    await render();
+    const tabs = [...container.querySelectorAll('[role="tab"]')];
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat", "Projects"]);
+    expect(
+      tabs.find((t) => t.textContent === "Chat")?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      tabs
+        .find((t) => t.textContent === "Projects")
+        ?.getAttribute("aria-selected"),
+    ).toBe("false");
+  });
+
+  it("chat mode lists chat conversations and creates new ones on the chat root", async () => {
+    useAppStore.setState({ mode: "chat" });
+    useProjectsStore.setState({
+      chatConversations: [conversation("ch_1", "hello world")],
+    });
+    await render();
+    expect(container.textContent).toContain("hello world");
+    // projects section is hidden in chat mode
+    expect([
+      ...container.querySelectorAll("button[title='Add project folder']"),
+    ]).toHaveLength(0);
+    // new chat goes through the chat sentinel root
+    await clickTitle("New chat");
+    const calls = invoke.mock.calls.filter(
+      ([c]) => c === "conversations:create",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toEqual({ root: "ufuk:chat" });
+  });
+
+  it("switching to projects and back keeps both lists (no state loss)", async () => {
+    useAppStore.setState({ mode: "chat" });
+    useProjectsStore.setState({
+      chatConversations: [conversation("ch_1", "chat stays")],
+      projects: [project("C:\\code\\app", "app", true)],
+      activeRoot: "C:\\code\\app",
+      conversations: [conversation("c_1", "project stays")],
+    });
+    await render();
+    expect(container.textContent).toContain("chat stays");
+
+    // switch to projects
+    await clickRole("Projects");
+    expect(useAppStore.getState().mode).toBe("projects");
+    expect(container.textContent).toContain("project stays");
+    expect(container.textContent).not.toContain("chat stays");
+
+    // switch back: the chat list is still there (kept in memory)
+    await clickRole("Chat");
+    expect(useAppStore.getState().mode).toBe("chat");
+    expect(container.textContent).toContain("chat stays");
+    expect(container.textContent).not.toContain("project stays");
+  });
+
+  it("chat conversations open and rename through the chat root", async () => {
+    useAppStore.setState({ mode: "chat" });
+    useProjectsStore.setState({
+      chatConversations: [conversation("ch_1", "rename me")],
+    });
+    await render();
+    await clickText("rename me");
+    const openCalls = invoke.mock.calls.filter(
+      ([c]) => c === "conversations:load",
+    );
+    expect(openCalls).toHaveLength(1);
+    expect(openCalls[0]?.[1]).toEqual({ root: "ufuk:chat", id: "ch_1" });
+
+    await clickTitle("Rename");
+    const input = container.querySelector("input");
+    expect(input).toBeTruthy();
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setter?.call(input, "renamed chat");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const renameCalls = invoke.mock.calls.filter(
+      ([c]) => c === "conversations:rename",
+    );
+    expect(renameCalls).toHaveLength(1);
+    expect(renameCalls[0]?.[1]).toEqual({
+      root: "ufuk:chat",
+      id: "ch_1",
+      title: "renamed chat",
+    });
   });
 });

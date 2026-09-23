@@ -90,24 +90,64 @@ export function authErrorCode(err: unknown): {
   return { message: String(err) };
 }
 
-/** GET /me through the main process (never exposed to the renderer directly). */
-export async function fetchSessionInfo(session: GatewaySession): Promise<{
+/** Why a session restore ended logged-out (drives the login-screen copy). */
+export type SessionRestoreReason = "expired" | "unreachable";
+
+export interface SessionSnapshot {
   userId: string;
   email: string;
   displayName: string | null;
   /** true when tokens are stored WITHOUT OS-level encryption (DPAPI unavailable). */
   usingPlainTokenStore: boolean;
-} | null> {
+}
+
+/**
+ * GET /me through the main process (never exposed to the renderer
+ * directly). Returns:
+ * - { info } — the profile when a valid session was restored
+ * - { info: null, reason: 'expired' } — stored tokens exist but could not
+ *   be refreshed (expired/revoked refresh token): the user must re-login
+ * - { info: null, reason: 'unreachable' } — the gateway could not be
+ *   contacted, so session state is unknown (retryable)
+ * - { info: null } — no stored tokens at all (never logged in / logged out)
+ */
+export async function fetchSessionSnapshot(
+  session: GatewaySession,
+): Promise<
+  | { info: SessionSnapshot; reason?: undefined }
+  | { info: null; reason?: SessionRestoreReason }
+> {
+  // no stored tokens at all: plain logged-out, no reason to surface
+  const stored = await session.tokenStore.store.load();
+  if (!stored) return { info: null };
+
   let token: string;
   try {
     token = await session.auth.getAccessToken();
-  } catch {
-    return null; // not logged in (or refresh failed) — treated as logged out
+  } catch (err) {
+    if (err instanceof ReauthRequiredError) {
+      return { info: null, reason: "expired" };
+    }
+    // network-level failure: the gateway could not be reached, tokens
+    // are untouched — distinguishable from a genuinely dead session
+    if (
+      err instanceof Error &&
+      (err.message.startsWith("Gateway unreachable") ||
+        err.message.includes("fetch failed"))
+    ) {
+      return { info: null, reason: "unreachable" };
+    }
+    return { info: null, reason: "expired" };
   }
-  const res = await session.fetchImpl(`${session.baseURL}/me`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  if (res.status === 401) return null;
+  let res: Response;
+  try {
+    res = await session.fetchImpl(`${session.baseURL}/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  } catch {
+    return { info: null, reason: "unreachable" };
+  }
+  if (res.status === 401) return { info: null, reason: "expired" };
   if (!res.ok) {
     throw new Error(`Gateway error (HTTP ${res.status})`);
   }
@@ -117,13 +157,15 @@ export async function fetchSessionInfo(session: GatewaySession): Promise<{
     display_name?: unknown;
   };
   if (typeof body.id !== "string" || typeof body.email !== "string")
-    return null;
+    return { info: null, reason: "expired" };
   return {
-    userId: body.id,
-    email: body.email,
-    displayName:
-      typeof body.display_name === "string" ? body.display_name : null,
-    usingPlainTokenStore: session.tokenStore.usingPlainFallback,
+    info: {
+      userId: body.id,
+      email: body.email,
+      displayName:
+        typeof body.display_name === "string" ? body.display_name : null,
+      usingPlainTokenStore: session.tokenStore.usingPlainFallback,
+    },
   };
 }
 
@@ -238,8 +280,7 @@ export async function fetchTierCatalog(
       const mine = new Set(allowed.map((t) => t.id));
       const others = new Map<string, string>();
       for (const plan of Array.isArray(plans) ? plans : []) {
-        const name =
-          typeof plan.name === "string" ? plan.name : "another plan";
+        const name = typeof plan.name === "string" ? plan.name : "another plan";
         if (!Array.isArray(plan.allowed_tier_aliases)) continue;
         for (const alias of plan.allowed_tier_aliases) {
           if (typeof alias === "string" && !mine.has(alias)) {

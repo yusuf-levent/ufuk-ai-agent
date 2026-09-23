@@ -12,6 +12,7 @@ export const defaultSettings: Settings = {
   defaultTier: "fast",
   permissionMode: "ask",
   privacyAcknowledged: false,
+  activeMode: "chat",
 };
 
 export const defaultPrivacyInfo = {
@@ -99,7 +100,10 @@ export function installBridge(overrides: BridgeOverrides = {}): {
         case "conversations:delete":
           return { ok: true, value: true };
         case "approvals:preview":
-          return { ok: true, value: { tool: "run_command", pattern: "npm test" } };
+          return {
+            ok: true,
+            value: { tool: "run_command", pattern: "npm test" },
+          };
         case "projects:set-permission-mode":
           return { ok: true, value: defaultProjects[0] };
         case "checkpoints:list":

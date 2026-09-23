@@ -1,11 +1,13 @@
 /**
- * Main shell (logged in): Antigravity-inspired layout — left sidebar
- * (projects + conversations), main chat area, model selector and input at
- * the bottom. M6: streaming chat with tool timeline, reasoning, stop/
- * retry, per-turn usage, keyboard shortcuts (Enter/Shift+Enter in the
- * composer; Esc stops; Ctrl+N new conversation).
+ * Main shell (logged in): top-level mode switch in the sidebar (Chat =
+ * tool-less conversations, no folder needed; Projects = the existing
+ * folder + agent flow). Main chat area, model selector and composer at
+ * the bottom; changed-files/checkpoint panel and approvals only exist in
+ * Projects mode. Keyboard: Enter/Shift+Enter in the composer; Esc stops;
+ * Ctrl+N new conversation (mode-aware).
  */
 import { useEffect, useRef, useState } from "react";
+import { CHAT_ROOT_ID } from "@shared/ipc";
 import { useAppStore } from "../stores/app";
 import { useProjectsStore } from "../stores/projects";
 import { useChatStore } from "../stores/chat";
@@ -29,16 +31,18 @@ function CreditIndicator() {
       <span
         className="flex items-center gap-1.5 text-neutral-400"
         title={`${usage.planName} · period ends ${
-          usage.periodEnd
-            ? new Date(usage.periodEnd).toLocaleDateString()
-            : "—"
+          usage.periodEnd ? new Date(usage.periodEnd).toLocaleDateString() : "—"
         } · ${usage.requestsPerMinute} req/min`}
       >
         <span className="h-1.5 w-14 overflow-hidden rounded-full bg-neutral-800">
           <span
             className={
               "block h-full " +
-              (pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-sky-500")
+              (pct > 90
+                ? "bg-red-500"
+                : pct > 70
+                  ? "bg-amber-500"
+                  : "bg-sky-500")
             }
             style={{ width: `${pct}%` }}
           />
@@ -47,7 +51,10 @@ function CreditIndicator() {
           {usage.creditsRemaining.toLocaleString(undefined, {
             maximumFractionDigits: 1,
           })}{" "}
-          / {usage.creditLimit.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          /{" "}
+          {usage.creditLimit.toLocaleString(undefined, {
+            maximumFractionDigits: 0,
+          })}
         </span>
       </span>
     );
@@ -65,12 +72,8 @@ function CreditIndicator() {
   return null;
 }
 
-export function MainShell({
-  onOpenSettings,
-}: {
-  onOpenSettings: () => void;
-}) {
-  const { session, logout } = useAppStore();
+export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { session, logout, mode } = useAppStore();
   const {
     activeConversation,
     activeConversationId,
@@ -79,6 +82,12 @@ export function MainShell({
     projects,
     newConversation,
     reloadActive,
+    chatConversations,
+    activeChatConversation,
+    activeChatConversationId,
+    loadChatConversations,
+    newChatConversation,
+    reloadActiveChat,
   } = useProjectsStore();
   const subscribe = useChatStore((s) => s.subscribe);
   const turns = useChatStore((s) => s.turns);
@@ -90,42 +99,62 @@ export function MainShell({
 
   useEffect(() => {
     void loadProjects();
+    void loadChatConversations();
     subscribe();
     void refreshModels();
-  }, [loadProjects, subscribe, refreshModels]);
+  }, [loadProjects, loadChatConversations, subscribe, refreshModels]);
+
+  // the mode decides which slice drives the main area
+  const conversation =
+    mode === "chat" ? activeChatConversation : activeConversation;
+  const conversationId =
+    mode === "chat" ? activeChatConversationId : activeConversationId;
+  const composerRoot = mode === "chat" ? CHAT_ROOT_ID : activeRoot;
 
   // when the active run finishes (running -> false with content), reload
   // the persisted conversation so history stays the single source of truth
-  const turn = activeConversationId ? turns[activeConversationId] : undefined;
+  const turn = conversationId ? turns[conversationId] : undefined;
   const runningRef = useRef(false);
   useEffect(() => {
     const wasRunning = runningRef.current;
     runningRef.current = turn?.running ?? false;
     if (wasRunning && !runningRef.current) {
-      void reloadActive();
+      if (mode === "chat") {
+        void reloadActiveChat();
+      } else {
+        void reloadActive();
+      }
       void refreshModels(); // credits changed
     }
-  }, [turn?.running, reloadActive, refreshModels]);
+  }, [turn?.running, mode, reloadActive, reloadActiveChat, refreshModels]);
 
   // global shortcuts: Esc stops the active run, Ctrl+N new conversation
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape" && activeConversationId) {
-        stop(activeConversationId);
+      if (e.key === "Escape" && conversationId) {
+        stop(conversationId);
       }
       if (e.key === "n" && e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        void newConversation();
+        if (mode === "chat") {
+          void newChatConversation();
+        } else {
+          void newConversation();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeConversationId, stop, newConversation]);
+  }, [conversationId, stop, mode, newConversation, newChatConversation]);
 
   const activeProject = projects.find((p) => p.root === activeRoot);
   const title =
-    activeConversation?.summary.title ??
-    (activeConversationId ? "Conversation" : activeProject?.name ?? "Ufuk");
+    conversation?.summary.title ??
+    (conversationId
+      ? "Conversation"
+      : mode === "chat"
+        ? "Ufuk"
+        : (activeProject?.name ?? "Ufuk"));
 
   const doLogout = async (): Promise<void> => {
     setLoggingOut(true);
@@ -136,7 +165,7 @@ export function MainShell({
     }
   };
 
-  const lastAssistant = [...(activeConversation?.messages ?? [])]
+  const lastAssistant = [...(conversation?.messages ?? [])]
     .reverse()
     .find((m) => m.role === "assistant" && m.content);
   const copyLast = (): void => {
@@ -161,7 +190,7 @@ export function MainShell({
         {/* header */}
         <header className="flex h-11 shrink-0 items-center gap-3 border-b border-neutral-800 px-4">
           <span className="truncate text-sm font-medium">{title}</span>
-          {activeProject && !activeProject.isGitRepo && (
+          {mode === "projects" && activeProject && !activeProject.isGitRepo && (
             <span
               className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300"
               title="Changes cannot be committed; consider running git init"
@@ -208,11 +237,8 @@ export function MainShell({
         </header>
 
         {/* transcript */}
-        {activeConversation || activeConversationId ? (
-          <Transcript
-            messages={activeConversation?.messages ?? []}
-            liveTurn={turn}
-          />
+        {conversation || conversationId ? (
+          <Transcript messages={conversation?.messages ?? []} liveTurn={turn} />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-2xl font-bold text-white shadow-lg">
@@ -220,18 +246,22 @@ export function MainShell({
             </div>
             <h2 className="text-lg font-semibold">Ufuk</h2>
             <p className="max-w-sm text-sm text-neutral-500">
-              {activeRoot
-                ? "Pick a conversation on the left, or start a new one (Ctrl+N)."
-                : "Add a project folder to begin — pick any local folder containing your code."}
+              {mode === "chat"
+                ? chatConversations.length > 0
+                  ? "Pick a chat on the left, or start a new one (Ctrl+N)."
+                  : "Ask anything — no project folder needed. Start a chat (Ctrl+N)."
+                : activeRoot
+                  ? "Pick a conversation on the left, or start a new one (Ctrl+N)."
+                  : "Add a project folder to begin — pick any local folder containing your code."}
             </p>
           </div>
         )}
 
         {/* composer */}
-        {activeRoot && activeConversationId ? (
+        {composerRoot && conversationId ? (
           <Composer
-            root={activeRoot}
-            conversationId={activeConversationId}
+            root={composerRoot}
+            conversationId={conversationId}
             onTurnStarted={() => {
               /* the transcript re-renders from store updates */
             }}
@@ -245,8 +275,8 @@ export function MainShell({
         )}
       </div>
 
-      {/* right panel: changed files + checkpoints (M7) */}
-      {activeProject && (
+      {/* right panel: changed files + checkpoints — Projects mode only */}
+      {mode === "projects" && activeProject && (
         <ChangesPanel
           project={activeProject}
           conversationId={activeConversationId}
@@ -256,8 +286,8 @@ export function MainShell({
         />
       )}
 
-      {/* approval modal (M7) */}
-      {activeRoot && activeConversationId && (
+      {/* approval modal — Projects mode only (chat runs have no tools) */}
+      {mode === "projects" && activeRoot && activeConversationId && (
         <ApprovalModal
           conversationId={activeConversationId}
           workspaceRoot={activeRoot}

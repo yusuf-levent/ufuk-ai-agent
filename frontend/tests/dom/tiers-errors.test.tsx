@@ -61,7 +61,10 @@ beforeEach(() => {
           },
         ],
         locked: [
-          { id: "balanced", reason: "Not available on your plan (available on Pro)." },
+          {
+            id: "balanced",
+            reason: "Not available on your plan (available on Pro).",
+          },
         ],
       },
     }),
@@ -97,7 +100,9 @@ beforeEach(() => {
       defaultTier: "fast",
       permissionMode: "ask",
       privacyAcknowledged: true,
+      activeMode: "projects",
     },
+    mode: "projects",
     session: {
       userId: "u1",
       email: "u@example.com",

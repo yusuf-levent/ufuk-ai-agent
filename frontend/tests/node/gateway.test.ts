@@ -8,7 +8,7 @@ import { ReauthRequiredError } from "@evren/agent-core";
 import {
   authErrorCode,
   buildGatewaySession,
-  fetchSessionInfo,
+  fetchSessionSnapshot,
   fetchTierCatalog,
   fetchUsage,
   mapClientError,
@@ -31,6 +31,7 @@ const settings = (backendUrl: string) => ({
   defaultTier: "fast",
   permissionMode: "ask" as const,
   privacyAcknowledged: true,
+  activeMode: "chat" as const,
 });
 
 /** Mock gateway: /auth/login + /auth/refresh tokens, /me profile. */
@@ -160,8 +161,8 @@ describe("authErrorCode", () => {
   });
 });
 
-describe("fetchSessionInfo", () => {
-  it("returns null when there is no stored session (logged out)", async () => {
+describe("fetchSessionSnapshot", () => {
+  it("returns plain logged-out (no reason) when there is no stored session", async () => {
     const fetchMock = gatewayMock();
     const s = buildGatewaySession(
       settings("http://localhost:8000"),
@@ -169,7 +170,7 @@ describe("fetchSessionInfo", () => {
       fakeSafe(),
       fetchMock,
     );
-    expect(await fetchSessionInfo(s)).toBeNull();
+    expect(await fetchSessionSnapshot(s)).toEqual({ info: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -182,13 +183,14 @@ describe("fetchSessionInfo", () => {
       fetchMock,
     );
     await s.auth.login("u@example.com", "pw");
-    const info = await fetchSessionInfo(s);
-    expect(info).toEqual({
+    const snapshot = await fetchSessionSnapshot(s);
+    expect(snapshot.info).toEqual({
       userId: "u1",
       email: "u@example.com",
       displayName: "U",
       usingPlainTokenStore: false,
     });
+    expect(snapshot.reason).toBeUndefined();
     const meCall = fetchMock.mock.calls.find(([url]) =>
       url.toString().endsWith("/me"),
     );
@@ -206,11 +208,11 @@ describe("fetchSessionInfo", () => {
       fetchMock,
     );
     await s.auth.login("u@example.com", "pw");
-    const info = await fetchSessionInfo(s);
-    expect(info?.usingPlainTokenStore).toBe(true);
+    const snapshot = await fetchSessionSnapshot(s);
+    expect(snapshot.info?.usingPlainTokenStore).toBe(true);
   });
 
-  it("returns null on 401 (expired session)", async () => {
+  it("returns reason 'expired' on 401 from /me", async () => {
     const fetchMock = gatewayMock();
     const s = buildGatewaySession(
       settings("http://localhost:8000"),
@@ -223,7 +225,61 @@ describe("fetchSessionInfo", () => {
     fetchMock.mockImplementation(
       async () => new Response("{}", { status: 401 }),
     );
-    expect(await fetchSessionInfo(s)).toBeNull();
+    expect(await fetchSessionSnapshot(s)).toEqual({
+      info: null,
+      reason: "expired",
+    });
+  });
+
+  it("returns reason 'expired' when the refresh token is invalid (re-login needed)", async () => {
+    const fetchMock = gatewayMock();
+    const s = buildGatewaySession(
+      settings("http://localhost:8000"),
+      tmp(),
+      fakeSafe(),
+      fetchMock,
+    );
+    await s.auth.login("u@example.com", "pw");
+    // every subsequent refresh is rejected: refresh token revoked/expired
+    fetchMock.mockImplementation(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/refresh")) {
+          return new Response("{}", { status: 401 });
+        }
+        void init;
+        return new Response("{}", { status: 401 });
+      },
+    );
+    // simulate an expired access token so a refresh is required
+    await s.tokenStore.store.save({
+      accessToken: "stale",
+      refreshToken: "revoked",
+      expiresAt: Date.now() - 1_000,
+    });
+    expect(await fetchSessionSnapshot(s)).toEqual({
+      info: null,
+      reason: "expired",
+    });
+  });
+
+  it("returns reason 'unreachable' when the gateway is down at restore time", async () => {
+    const fetchMock = gatewayMock();
+    const s = buildGatewaySession(
+      settings("http://localhost:8000"),
+      tmp(),
+      fakeSafe(),
+      fetchMock,
+    );
+    await s.auth.login("u@example.com", "pw");
+    // network-level failure: fetch throws before any response exists
+    fetchMock.mockImplementation(async () => {
+      throw new Error("fetch failed: connection refused");
+    });
+    expect(await fetchSessionSnapshot(s)).toEqual({
+      info: null,
+      reason: "unreachable",
+    });
   });
 
   it("surfaces gateway errors for non-auth failures", async () => {
@@ -238,7 +294,67 @@ describe("fetchSessionInfo", () => {
     fetchMock.mockImplementation(
       async () => new Response("{}", { status: 500 }),
     );
-    await expect(fetchSessionInfo(s)).rejects.toThrow("HTTP 500");
+    await expect(fetchSessionSnapshot(s)).rejects.toThrow("HTTP 500");
+  });
+});
+
+describe("session restore across a simulated restart (Issue 2)", () => {
+  it("restores the session in a NEW session object on the same userData dir", async () => {
+    const dir = tmp();
+    const fetchMock = gatewayMock();
+    const first = buildGatewaySession(
+      settings("http://localhost:8000"),
+      dir,
+      fakeSafe(),
+      fetchMock,
+    );
+    await first.auth.login("u@example.com", "pw");
+
+    // "restart": a fresh session built from the same settings + dir
+    const second = buildGatewaySession(
+      settings("http://localhost:8000"),
+      dir,
+      fakeSafe(),
+      fetchMock,
+    );
+    const snapshot = await fetchSessionSnapshot(second);
+    expect(snapshot.info).toMatchObject({
+      userId: "u1",
+      email: "u@example.com",
+    });
+  });
+
+  it("refreshes an expired access token during restore (valid refresh token)", async () => {
+    const dir = tmp();
+    const fetchMock = gatewayMock();
+    const first = buildGatewaySession(
+      settings("http://localhost:8000"),
+      dir,
+      fakeSafe(),
+      fetchMock,
+    );
+    await first.auth.login("u@example.com", "pw");
+    // age the access token past expiry so restore must call /auth/refresh
+    const tokens = await first.tokenStore.store.load();
+    await first.tokenStore.store.save({
+      accessToken: tokens!.accessToken,
+      refreshToken: tokens!.refreshToken,
+      expiresAt: Date.now() - 60_000,
+    });
+
+    const second = buildGatewaySession(
+      settings("http://localhost:8000"),
+      dir,
+      fakeSafe(),
+      fetchMock,
+    );
+    const snapshot = await fetchSessionSnapshot(second);
+    // refreshed token (acc-2 from the mock) was used and accepted by /me
+    expect(snapshot.info?.userId).toBe("u1");
+    const refreshCalls = fetchMock.mock.calls.filter(([url]) =>
+      url.toString().endsWith("/auth/refresh"),
+    );
+    expect(refreshCalls).toHaveLength(1);
   });
 });
 
@@ -310,7 +426,10 @@ describe("fetchTierCatalog / fetchUsage (mocked gateway)", () => {
         return new Response(
           JSON.stringify([
             { name: "Free", allowed_tier_aliases: ["fast"] },
-            { name: "Pro", allowed_tier_aliases: ["fast", "balanced", "strong"] },
+            {
+              name: "Pro",
+              allowed_tier_aliases: ["fast", "balanced", "strong"],
+            },
           ]),
           { status: 200 },
         );
@@ -331,7 +450,12 @@ describe("fetchTierCatalog / fetchUsage (mocked gateway)", () => {
       }
       throw new Error(`unexpected fetch: ${url}`);
     });
-    const s = buildGatewaySession(settings("http://localhost:8000"), tmp(), fakeSafe(), fetchMock);
+    const s = buildGatewaySession(
+      settings("http://localhost:8000"),
+      tmp(),
+      fakeSafe(),
+      fetchMock,
+    );
     // login so the client has a token
     await s.auth.login("u@example.com", "pw");
 

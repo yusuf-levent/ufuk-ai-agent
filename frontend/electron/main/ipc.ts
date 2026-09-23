@@ -32,7 +32,7 @@ import {
   authErrorCode,
   buildGatewaySession,
   fetchPrivacyInfo,
-  fetchSessionInfo,
+  fetchSessionSnapshot,
   fetchTierCatalog,
   fetchUsage,
   mapClientError,
@@ -158,8 +158,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   });
 
   register(INVOKE_CHANNELS.authSession, z.void(), async () => {
-    const info = await fetchSessionInfo(deps.session());
-    return { ok: true, value: info };
+    const snapshot = await fetchSessionSnapshot(deps.session());
+    return { ok: true, value: snapshot };
   });
 
   register(INVOKE_CHANNELS.privacyInfo, z.void(), async () => {
@@ -427,8 +427,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     INVOKE_CHANNELS.checkpointsDiff,
     DiffRequestSchema,
     async (_e, payload) => {
-      const { root, path: file, checkpointId } =
-        DiffRequestSchema.parse(payload);
+      const {
+        root,
+        path: file,
+        checkpointId,
+      } = DiffRequestSchema.parse(payload);
       const workspace = deps.projects.requireKnownRoot(root);
       const store = await deps.projects.checkpoints(root);
 

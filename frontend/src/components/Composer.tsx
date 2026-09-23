@@ -2,9 +2,11 @@
  * Composer (bottom bar): tier selector from the live catalog (display name
  * + real upstream provider/model in a details popover; locked tiers with
  * an explanation) + message input. Enter sends, Shift+Enter inserts a
- * newline; Stop aborts; Retry re-sends the last message.
+ * newline; Stop aborts; Retry re-sends the last message. Chat-mode
+ * conversations (root = CHAT_ROOT_ID) get chat-flavored copy.
  */
 import { useState } from "react";
+import { CHAT_ROOT_ID } from "@shared/ipc";
 import { useAppStore } from "../stores/app";
 import { useChatStore } from "../stores/chat";
 import { useModelsStore } from "../stores/models";
@@ -24,9 +26,7 @@ export function Composer({
   const running = useChatStore(
     (s) => s.turns[conversationId]?.running ?? false,
   );
-  const hasError = useChatStore(
-    (s) => s.turns[conversationId]?.error ?? null,
-  );
+  const hasError = useChatStore((s) => s.turns[conversationId]?.error ?? null);
   const lastMessage = useChatStore(
     (s) => s.lastMessage[conversationId] ?? null,
   );
@@ -129,9 +129,7 @@ export function Composer({
                 {selected.maxOutputTokens !== undefined && (
                   <div className="flex justify-between gap-2">
                     <dt>max output</dt>
-                    <dd>
-                      {selected.maxOutputTokens.toLocaleString()} tokens
-                    </dd>
+                    <dd>{selected.maxOutputTokens.toLocaleString()} tokens</dd>
                   </div>
                 )}
               </dl>
@@ -148,7 +146,11 @@ export function Composer({
                 submit();
               }
             }}
-            placeholder="Ask Ufuk to work on this project…"
+            placeholder={
+              root === CHAT_ROOT_ID
+                ? "Ask Ufuk anything…"
+                : "Ask Ufuk to work on this project…"
+            }
             rows={2}
             disabled={running}
             className="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-sky-600 disabled:opacity-60"

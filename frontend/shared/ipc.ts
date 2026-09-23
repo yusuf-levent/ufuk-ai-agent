@@ -13,6 +13,15 @@ import type { EventChannel, InvokeChannel } from "./channels";
 // envelope
 // ---------------------------------------------------------------------------
 
+/**
+ * Reserved conversation root for Chat-mode (tool-less) conversations. The
+ * renderer passes this id through the normal conversations/chat channels;
+ * the main process maps it to an app-owned workspace under userData. It is
+ * never a filesystem path the renderer could influence and never appears in
+ * projects.json, so Projects mode is unaffected.
+ */
+export const CHAT_ROOT_ID = "ufuk:chat";
+
 export interface IpcError {
   message: string;
   /** Machine-readable hint for the UI, e.g. 'invalid_credentials'. */
@@ -63,6 +72,13 @@ export const SettingsSchema = z.object({
   permissionMode: z.enum(["ask", "auto-edits"]).default("ask"),
   /** First-run privacy notice acknowledged (explains gateway routing). */
   privacyAcknowledged: z.boolean().default(false),
+  /**
+   * Top-level mode (nav rework): 'chat' = tool-less conversations, no
+   * folder needed; 'projects' = the folder + agent flow. Defaults to
+   * 'chat' for fresh installs; a one-time migration flips pre-nav
+   * installs with existing projects to 'projects'.
+   */
+  activeMode: z.enum(["chat", "projects"]).default("chat"),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -93,6 +109,18 @@ export const SessionInfoSchema = z.object({
   usingPlainTokenStore: z.boolean().default(false),
 });
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+
+/**
+ * auth:session response: the restored profile (when logged in) plus a
+ * reason when the app ended up logged out — 'expired' (refresh token
+ * invalid/revoked: the user must log in again) or 'unreachable' (gateway
+ * down at restore time; retryable, tokens untouched).
+ */
+export const SessionSnapshotSchema = z.object({
+  info: SessionInfoSchema.nullable(),
+  reason: z.enum(["expired", "unreachable"]).optional(),
+});
+export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 
 /** GET /privacy/info (proxied by main; shape matches the backend contract). */
 export const PrivacyInfoSchema = z.object({
@@ -216,7 +244,9 @@ export const ApprovalRespondRequestSchema = z.object({
   /** "Always allow" (this project) — rule derived in main. */
   remember: z.boolean().default(false),
 });
-export type ApprovalRespondRequest = z.infer<typeof ApprovalRespondRequestSchema>;
+export type ApprovalRespondRequest = z.infer<
+  typeof ApprovalRespondRequestSchema
+>;
 
 // ---------------------------------------------------------------------------
 // approvals, permission modes, checkpoints, diffs (Milestone 7)
@@ -226,7 +256,9 @@ export const ApprovalPreviewRequestSchema = z.object({
   conversationId: z.string().min(1),
   approvalId: z.string().min(1),
 });
-export type ApprovalPreviewRequest = z.infer<typeof ApprovalPreviewRequestSchema>;
+export type ApprovalPreviewRequest = z.infer<
+  typeof ApprovalPreviewRequestSchema
+>;
 
 export const ApprovalPreviewSchema = z.object({
   tool: z.string().min(1),
@@ -259,7 +291,9 @@ export const CheckpointRevertRequestSchema = z.object({
   root: z.string().min(1),
   id: z.string().min(1),
 });
-export type CheckpointRevertRequest = z.infer<typeof CheckpointRevertRequestSchema>;
+export type CheckpointRevertRequest = z.infer<
+  typeof CheckpointRevertRequestSchema
+>;
 
 export const DiffRequestSchema = z.object({
   root: z.string().min(1),
@@ -388,7 +422,7 @@ export interface InvokeMap {
   "auth:login": { request: LoginRequest; response: null };
   "auth:register": { request: RegisterRequest; response: null };
   "auth:logout": { request: undefined; response: null };
-  "auth:session": { request: undefined; response: SessionInfo | null };
+  "auth:session": { request: undefined; response: SessionSnapshot };
   "privacy:info": { request: undefined; response: PrivacyInfo };
   "shell:open-external": { request: OpenExternalRequest; response: boolean };
   "projects:list": { request: undefined; response: ProjectInfo[] };

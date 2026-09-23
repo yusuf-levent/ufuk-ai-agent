@@ -164,6 +164,7 @@ describe("payload schemas", () => {
       defaultTier: "fast",
       permissionMode: "ask",
       privacyAcknowledged: false,
+      activeMode: "chat",
     });
   });
 

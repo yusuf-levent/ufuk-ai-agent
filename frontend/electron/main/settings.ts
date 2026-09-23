@@ -30,6 +30,25 @@ export class SettingsStore {
     return this.cache;
   }
 
+  /**
+   * true when the key is present in the raw settings file (false for
+   * missing files / corrupt JSON). Lets one-time migrations detect
+   * pre-migration installs instead of guessing from schema defaults.
+   */
+  rawHas(key: string): boolean {
+    if (!existsSync(this.file)) return false;
+    try {
+      const raw = JSON.parse(readFileSync(this.file, "utf8")) as unknown;
+      return (
+        typeof raw === "object" &&
+        raw !== null &&
+        key in (raw as Record<string, unknown>)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   patch(patch: SettingsPatch): Settings {
     const next = SettingsSchema.parse({ ...this.load(), ...patch });
     this.cache = next;
