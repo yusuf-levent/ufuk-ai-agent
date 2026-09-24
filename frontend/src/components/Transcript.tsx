@@ -238,7 +238,7 @@ export function historyCoversRun(
 ): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.role === "user") return m.content === userText;
+    if (m && m.role === "user") return m.content === userText;
   }
   return false;
 }

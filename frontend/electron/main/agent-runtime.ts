@@ -33,6 +33,10 @@ import {
   ShadowCheckpointStore,
   deriveRememberRule,
   WorkspaceRoot,
+  ProjectMapCache,
+  buildProjectMap,
+  renderProjectMap,
+  updateMapEntry,
 } from "@evren/local-runner";
 import type { BrowserWindow } from "electron";
 import { EVENT_CHANNELS } from "@shared/channels";
@@ -258,6 +262,13 @@ export class AgentRuntime {
       { chat },
     );
 
+    const mapCache = chat ? null : new ProjectMapCache(opened.dbDir);
+    let projectMap = chat ? null : mapCache?.load() ?? buildProjectMap(workspace.root);
+    if (mapCache && projectMap) {
+      mapCache.save(projectMap);
+    }
+    const projectMapText = projectMap ? renderProjectMap(projectMap).text : null;
+
     const systemPrompt = chat
       ? CHAT_SYSTEM_PROMPT
       : buildSystemPrompt({
@@ -268,6 +279,7 @@ export class AgentRuntime {
           )
             ? readFileSync(path.join(workspace.root, "AGENT.md"), "utf8")
             : null,
+          projectMap: projectMapText,
         });
 
     let permissionEngine: PermissionEngine | undefined;
@@ -364,6 +376,11 @@ export class AgentRuntime {
           await persistFresh();
         }
         this.emit(conversationId, ev);
+        if (ev.type === "file_changed" && projectMap && mapCache) {
+          const kind = ev.change === "deleted" ? "deleted" : "upsert";
+          projectMap = updateMapEntry(projectMap, ev.path, kind, workspace.root);
+          mapCache.save(projectMap);
+        }
         if (ev.type === "tool_call") {
           toolCallArgs.set(ev.id, safeParse(ev.arguments));
         } else if (ev.type === "tool_result") {
