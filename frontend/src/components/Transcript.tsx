@@ -9,7 +9,7 @@ import { memo, useState } from "react";
 import type { ChatMessage } from "@shared/ipc";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { FriendlyErrorView } from "./FriendlyErrorView";
-import type { LiveTurn, ToolStep } from "../stores/chat";
+import { useChatStore, type LiveTurn, type ToolStep } from "../stores/chat";
 
 const MAX_INLINE = 6_000;
 
@@ -178,13 +178,25 @@ function UsageBar({ turn }: { turn: LiveTurn }) {
 
 export const LiveTurnView = memo(function LiveTurnView({
   turn,
+  covered = false,
 }: {
   turn: LiveTurn;
+  /**
+   * True once the persisted conversation history already contains this
+   * run's messages (user + assistant + tool rows). The live text/steps
+   * are a preview of exactly that persisted content, so they are hidden
+   * when covered — otherwise the final answer would render twice (once
+   * as the normal message bubble, once more under the reasoning
+   * section). Reasoning, usage and errors are never persisted and always
+   * stay. While the run is active the history cannot contain it yet, so
+   * streaming output always shows.
+   */
+  covered?: boolean;
 }) {
+  const showOutput = turn.running || !covered;
   const hasContent =
-    turn.text ||
+    (showOutput && (turn.text || turn.steps.length > 0)) ||
     turn.reasoning ||
-    turn.steps.length > 0 ||
     turn.fileChanges.length > 0 ||
     turn.usage ||
     turn.error ||
@@ -193,14 +205,14 @@ export const LiveTurnView = memo(function LiveTurnView({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3">
       <Reasoning text={turn.reasoning} />
-      {turn.steps.length > 0 && (
+      {showOutput && turn.steps.length > 0 && (
         <div className="space-y-1">
           {turn.steps.map((s) => (
             <Step key={s.id} step={s} />
           ))}
         </div>
       )}
-      {turn.text && (
+      {showOutput && turn.text && (
         <div className="self-start text-sm text-neutral-100">
           <CappedMarkdown text={turn.text} />
         </div>
@@ -211,13 +223,42 @@ export const LiveTurnView = memo(function LiveTurnView({
   );
 });
 
+/**
+ * True when the persisted history already contains the run triggered by
+ * `userText`: the run's user message and its output (assistant text,
+ * tool rows) are persisted together, so matching the run's user text
+ * against the LAST user message in history means the whole turn has
+ * landed. (A re-sent identical message whose run failed without
+ * persisting can false-positive; the cost is hiding the partial streamed
+ * text of that failed run — the error view still shows.)
+ */
+export function historyCoversRun(
+  messages: ChatMessage[],
+  userText: string,
+): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user") return m.content === userText;
+  }
+  return false;
+}
+
 export const Transcript = memo(function Transcript({
   messages,
   liveTurn,
+  conversationId,
 }: {
   messages: ChatMessage[];
   liveTurn?: LiveTurn;
+  /** Active conversation — resolves the live turn's triggering message. */
+  conversationId?: string;
 }) {
+  // the run's user message: set on send, kept for retry
+  const runUserText = useChatStore((s) =>
+    conversationId ? s.lastMessage[conversationId] : undefined,
+  );
+  const covered =
+    liveTurn && runUserText ? historyCoversRun(messages, runUserText) : false;
   const empty = messages.length === 0 && !liveTurn;
   if (empty) {
     return (
@@ -250,7 +291,7 @@ export const Transcript = memo(function Transcript({
               </div>
             );
           })}
-        {liveTurn && <LiveTurnView turn={liveTurn} />}
+        {liveTurn && <LiveTurnView turn={liveTurn} covered={covered} />}
       </div>
     </div>
   );

@@ -76,8 +76,9 @@ export function ChangesPanel({
   }, [project.root, conversationId]);
 
   // re-fetch when a run finishes (changed files / checkpoints are new
-  // then). The main process persists tool calls just AFTER the done event,
-  // so a delayed second fetch closes the race.
+  // then). The main process persists the finished turn BEFORE emitting
+  // the done event, so the first fetch already sees the final state; the
+  // delayed second fetch stays as defense in depth.
   const wasActive = useRef(false);
   useEffect(() => {
     if (wasActive.current && !turnActive) {

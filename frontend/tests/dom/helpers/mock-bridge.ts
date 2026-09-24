@@ -99,6 +99,8 @@ export function installBridge(overrides: BridgeOverrides = {}): {
         case "conversations:rename":
         case "conversations:delete":
           return { ok: true, value: true };
+        case "chat:send":
+          return { ok: true, value: null };
         case "approvals:preview":
           return {
             ok: true,

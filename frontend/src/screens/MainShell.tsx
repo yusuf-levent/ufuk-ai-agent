@@ -176,7 +176,11 @@ export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
 
         {/* transcript */}
         {conversation || conversationId ? (
-          <Transcript messages={conversation?.messages ?? []} liveTurn={turn} />
+          <Transcript
+            messages={conversation?.messages ?? []}
+            liveTurn={turn}
+            conversationId={conversationId ?? undefined}
+          />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-2xl font-bold text-white shadow-lg">

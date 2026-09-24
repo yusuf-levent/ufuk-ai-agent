@@ -243,6 +243,9 @@ export class AgentRuntime {
       auth: gw.auth,
       baseURL: gw.baseURL,
       model: tier,
+      // forward the session's injectable fetch (same seam the gateway
+      // client got in M8) so runs are testable against a fake gateway
+      fetchImpl: gw.fetchImpl,
     });
 
     // Chat mode (app-owned workspace, sentinel root): tool-less run —
@@ -325,10 +328,40 @@ export class AgentRuntime {
 
     const toolCallArgs = new Map<string, unknown>();
     const toolRecords: ToolCallRecord[] = [];
+    /**
+     * Persist the finished turn (also on cancel — same as the CLI).
+     * Idempotent via the persisted-message counter and by draining the
+     * tool-record buffer, so the post-loop fallback call is a no-op when
+     * persistence already ran.
+     */
+    const persistFresh = async (): Promise<void> => {
+      const fresh = agent.messagesSince(persisted + 1); // +1: system prompt
+      if (fresh.length > 0) {
+        await opened.store.appendMessages(conversationId, fresh);
+        persisted += fresh.length;
+      }
+      while (toolRecords.length > 0) {
+        const record = toolRecords.shift()!;
+        await opened.store.appendToolCall(conversationId, record);
+        await opened.store.appendAudit(
+          workspace.root,
+          record.tool,
+          safeParse(record.argsJson),
+          record.ok,
+        );
+      }
+    };
     try {
       for await (const ev of agent.run(message, run.controller.signal)) {
         if (ev.type === "approval_request") {
           run.expectedApprovalId = ev.id;
+        }
+        if (ev.type === "done") {
+          // Persist BEFORE the renderer sees 'done': the renderer reloads
+          // the conversation on the running->false transition, and that
+          // reload must observe the persisted final messages (otherwise
+          // the final answer could vanish or arrive twice).
+          await persistFresh();
         }
         this.emit(conversationId, ev);
         if (ev.type === "tool_call") {
@@ -344,21 +377,9 @@ export class AgentRuntime {
           });
         }
       }
-      // persist the finished turn (also on cancel — same as the CLI)
-      const fresh = agent.messagesSince(persisted + 1); // +1: system prompt
-      if (fresh.length > 0) {
-        await opened.store.appendMessages(conversationId, fresh);
-        persisted += fresh.length;
-      }
-      for (const record of toolRecords) {
-        await opened.store.appendToolCall(conversationId, record);
-        await opened.store.appendAudit(
-          workspace.root,
-          record.tool,
-          safeParse(record.argsJson),
-          record.ok,
-        );
-      }
+      // fallback for paths that ended without a done event (no-op when
+      // persistence already ran on the done event)
+      await persistFresh();
     } catch (err) {
       // structured info (M8) drives the actionable renderer UI; the
       // message is desktop-worded (mapGatewayError's texts mention the CLI)

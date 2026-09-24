@@ -10,7 +10,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installBridge } from "./helpers/mock-bridge";
 import { useChatStore } from "../../src/stores/chat";
-import { Transcript, LiveTurnView } from "../../src/components/Transcript";
+import {
+  Transcript,
+  LiveTurnView,
+  historyCoversRun,
+} from "../../src/components/Transcript";
 import { ApprovalModal } from "../../src/components/ApprovalModal";
 import { Composer } from "../../src/components/Composer";
 
@@ -256,6 +260,104 @@ describe("LiveTurnView rendering", () => {
     // CappedMarkdown caps the rendered markdown and offers the full text
     expect(container.textContent).toContain("show all");
     expect(container.textContent?.length ?? 0).toBeLessThan(21_000);
+  });
+});
+
+describe("final answer renders exactly once (bug-1 regression)", () => {
+  const ANSWER = "The final answer is 42.";
+
+  /** A finished turn (reasoning + streamed answer + usage) for c_1. */
+  const finishedTurnWithReasoning = async (): Promise<void> => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "what is it?");
+    });
+    emit({ type: "reasoning_delta", text: "thinking it through…" });
+    emit({ type: "message_delta", text: ANSWER });
+    emit({
+      type: "usage",
+      usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+    });
+    emit({
+      type: "done",
+      reason: "final",
+      steps: 0,
+      usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+    });
+  };
+
+  it("counts the final answer text node ONCE when the history covers the turn", async () => {
+    await finishedTurnWithReasoning();
+    // the reloaded persisted conversation (what lands after 'done'):
+    // user message + final assistant message
+    await render(
+      <Transcript
+        conversationId="c_1"
+        messages={[
+          { role: "user", content: "what is it?" },
+          { role: "assistant", content: ANSWER },
+        ]}
+        liveTurn={useChatStore.getState().turns["c_1"]!}
+      />,
+    );
+    const occurrences = (container.textContent ?? "").split(ANSWER).length - 1;
+    expect(occurrences).toBe(1);
+    // the reasoning toggle and the token usage line stay
+    expect(container.textContent).toContain("reasoning");
+    expect(container.textContent).toMatch(/tokens: 100 in \+ 20 out/);
+  });
+
+  it("still shows the streamed answer while the history has not reloaded yet", async () => {
+    await finishedTurnWithReasoning();
+    // reload in flight: persisted history does not contain the turn yet
+    await render(
+      <Transcript
+        conversationId="c_1"
+        messages={[]}
+        liveTurn={useChatStore.getState().turns["c_1"]!}
+      />,
+    );
+    const occurrences = (container.textContent ?? "").split(ANSWER).length - 1;
+    expect(occurrences).toBe(1); // the live copy — not zero (no flash), not two
+    expect(container.textContent).toContain("reasoning");
+  });
+
+  it("an errored run keeps its streamed text when nothing was persisted", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "what is it?");
+    });
+    emit({ type: "reasoning_delta", text: "thinking…" });
+    emit({ type: "message_delta", text: ANSWER });
+    emit({ type: "error", fatal: true, message: "Cannot reach the backend." });
+    // reload landed WITHOUT the turn (fatal errors persist nothing)
+    await render(
+      <Transcript
+        conversationId="c_1"
+        messages={[]}
+        liveTurn={useChatStore.getState().turns["c_1"]!}
+      />,
+    );
+    expect((container.textContent ?? "").split(ANSWER).length - 1).toBe(1);
+    expect(container.textContent).toContain("Cannot reach the backend.");
+  });
+});
+
+describe("historyCoversRun (coverage rule)", () => {
+  it("matches the run's user text against the LAST user message in history", () => {
+    const history = [
+      { role: "user" as const, content: "older question" },
+      { role: "assistant" as const, content: "older answer" },
+      { role: "user" as const, content: "what is it?" },
+      { role: "assistant" as const, content: "answer" },
+    ];
+    expect(historyCoversRun(history, "what is it?")).toBe(true);
+    expect(historyCoversRun(history, "something else")).toBe(false);
+  });
+
+  it("an empty history (or one without user messages) never covers a run", () => {
+    expect(historyCoversRun([], "what is it?")).toBe(false);
+    expect(
+      historyCoversRun([{ role: "assistant", content: "hi" }], "what is it?"),
+    ).toBe(false);
   });
 });
 
