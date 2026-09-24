@@ -111,7 +111,7 @@ header location (verified by grep).
 | evren-agent (untouched) | **237 passed** (76 + 161) |
 | evren-backend (untouched) | **115 passed** (plans re-seeded after) |
 | frontend unit | **173 passed** (19 files; +45 net) |
-| frontend e2e | **14 passed** (12 smoke + 1 session-restore + 1 fix-it full scenario vs the REAL upstream) |
+| frontend e2e | **13 passed** (11 smoke + 1 session-restore + 1 fix-it full scenario vs the REAL upstream) |
 
 - typecheck + eslint + prettier clean.
 - The fix-it e2e re-verified the full regression surface end to end:

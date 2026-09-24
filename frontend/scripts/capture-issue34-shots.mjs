@@ -41,23 +41,27 @@ await win.getByRole("button", { name: "Log in", exact: true }).click();
 await win
   .getByRole("tab", { name: "Chat" })
   .waitFor({ state: "visible", timeout: 30_000 });
-await win
-  .getByLabel("Credits")
-  .waitFor({ state: "visible", timeout: 20_000 });
+await win.getByLabel("Credits").waitFor({ state: "visible", timeout: 20_000 });
 await win.waitForTimeout(500);
 
 // 11: remaining-first credit indicator in the header
-await win.screenshot({ path: path.join(SCREENSHOTS, "11-credits-remaining.png") });
+await win.screenshot({
+  path: path.join(SCREENSHOTS, "11-credits-remaining.png"),
+});
 
 // 12: the click breakdown (plan/used/remaining/reset)
 await win.getByLabel("Credits").click();
 await win.waitForTimeout(300);
-await win.screenshot({ path: path.join(SCREENSHOTS, "12-credits-breakdown.png") });
+await win.screenshot({
+  path: path.join(SCREENSHOTS, "12-credits-breakdown.png"),
+});
 
 // 13: bottom-left account area (avatar + email + gear) and the dialog
 await win.getByLabel("Settings").click();
 await win.waitForTimeout(300);
-await win.screenshot({ path: path.join(SCREENSHOTS, "13-settings-bottom-left.png") });
+await win.screenshot({
+  path: path.join(SCREENSHOTS, "13-settings-bottom-left.png"),
+});
 
 console.log("screenshots captured");
 await app.close();
