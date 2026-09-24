@@ -64,6 +64,9 @@ afterEach(() => {
     settings: null,
     session: null,
     sessionChecked: false,
+    sessionExpired: false,
+    sessionUnreachable: false,
+    mode: "chat",
   });
 });
 
@@ -120,6 +123,34 @@ describe("PrivacyGate (first-run notice)", () => {
 });
 
 describe("LoginScreen", () => {
+  it("shows a clear 'session expired' banner when the stored session could not be restored", async () => {
+    useAppStore.setState({ sessionExpired: true, sessionUnreachable: false });
+    await render(<LoginScreen onOpenSettings={() => {}} />);
+    const banner = container.querySelector('[role="status"]');
+    expect(banner?.textContent).toContain("session expired");
+    expect(banner?.textContent).toContain("log in again");
+    useAppStore.setState({ sessionExpired: false });
+  });
+
+  it("shows a retryable banner when the backend was unreachable at restore time", async () => {
+    useAppStore.setState({ sessionExpired: false, sessionUnreachable: true });
+    await render(<LoginScreen onOpenSettings={() => {}} />);
+    const banner = container.querySelector('[role="status"]');
+    expect(banner?.textContent).toContain("Couldn't reach the backend");
+    const retry = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Retry"),
+    );
+    expect(retry).toBeTruthy();
+    await act(async () => {
+      retry?.click();
+    });
+    // retry re-checks the session through the bridge
+    expect(
+      invoke.mock.calls.filter(([c]) => c === "auth:session").length,
+    ).toBeGreaterThanOrEqual(1);
+    useAppStore.setState({ sessionUnreachable: false });
+  });
+
   it("shows a friendly error for invalid credentials", async () => {
     const { invoke: failInvoke } = installBridge({
       "auth:login": () => ({
@@ -195,6 +226,61 @@ describe("LoginScreen", () => {
     });
     expect(container.textContent).toContain("Registration failed");
     expect(container.textContent).toContain("email already registered");
+  });
+});
+
+describe("app store session restore (snapshot with reason)", () => {
+  it("restores the profile and clears the flags when info is present", async () => {
+    installBridge({
+      "auth:session": () => ({
+        ok: true,
+        value: {
+          info: {
+            userId: "u1",
+            email: "u@example.com",
+            displayName: null,
+            usingPlainTokenStore: false,
+          },
+        },
+      }),
+    });
+    await act(async () => {
+      await useAppStore.getState().refreshSession();
+    });
+    expect(useAppStore.getState().session).toMatchObject({
+      userId: "u1",
+      email: "u@example.com",
+    });
+    expect(useAppStore.getState().sessionExpired).toBe(false);
+    expect(useAppStore.getState().sessionUnreachable).toBe(false);
+  });
+
+  it("marks sessionExpired when the restore reason is 'expired'", async () => {
+    installBridge({
+      "auth:session": () => ({
+        ok: true,
+        value: { info: null, reason: "expired" },
+      }),
+    });
+    await act(async () => {
+      await useAppStore.getState().refreshSession();
+    });
+    expect(useAppStore.getState().session).toBeNull();
+    expect(useAppStore.getState().sessionExpired).toBe(true);
+  });
+
+  it("marks sessionUnreachable (retryable) when the reason is 'unreachable'", async () => {
+    installBridge({
+      "auth:session": () => ({
+        ok: true,
+        value: { info: null, reason: "unreachable" },
+      }),
+    });
+    await act(async () => {
+      await useAppStore.getState().refreshSession();
+    });
+    expect(useAppStore.getState().sessionUnreachable).toBe(true);
+    expect(useAppStore.getState().sessionExpired).toBe(false);
   });
 });
 

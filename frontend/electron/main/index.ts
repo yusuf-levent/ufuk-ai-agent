@@ -18,6 +18,11 @@ import { buildGatewaySession, type GatewaySession } from "./gateway";
 import { ProjectManager } from "./projects";
 import { AgentRuntime } from "./agent-runtime";
 import { migrateActiveMode } from "./migrate";
+import {
+  canonicalUserDataDir,
+  legacyUserDataDirs,
+  migrateLegacyUserData,
+} from "./userdata";
 import { safeStorage } from "electron";
 
 let mainWindow: BrowserWindow | null = null;
@@ -71,9 +76,27 @@ if (!app.requestSingleInstanceLock()) {
     // test-only isolation: e2e/debug runs redirect userData (Electron's
     // appData path follows the Windows known-folder API, so APPDATA env
     // overrides do NOT work)
+    //
+    // Otherwise userData is PINNED to %APPDATA%\Ufuk in every launch
+    // mode (packaged, `pnpm start`, dev) so tokens/settings/projects
+    // stop fragmenting across per-mode directories, and any pre-pin
+    // legacy dirs are merged in (newest file wins, zero data loss).
     const userDataOverride = process.env["UFUK_USER_DATA_DIR"];
     if (userDataOverride) {
       app.setPath("userData", userDataOverride);
+    } else {
+      const appDataDir = app.getPath("appData");
+      const canonical = canonicalUserDataDir(appDataDir);
+      const migrated = migrateLegacyUserData(
+        canonical,
+        legacyUserDataDirs(appDataDir),
+      );
+      if (migrated.length > 0) {
+        console.log(
+          `[ufuk] merged legacy app data into ${canonical}: ${migrated.join(", ")}`,
+        );
+      }
+      app.setPath("userData", canonical);
     }
 
     const userDataDir = app.getPath("userData");

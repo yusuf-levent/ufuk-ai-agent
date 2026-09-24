@@ -67,7 +67,7 @@ export function installBridge(overrides: BridgeOverrides = {}): {
         case "privacy:info":
           return { ok: true, value: defaultPrivacyInfo };
         case "auth:session":
-          return { ok: true, value: null };
+          return { ok: true, value: { info: null } };
         case "auth:login":
         case "auth:register":
         case "auth:logout":

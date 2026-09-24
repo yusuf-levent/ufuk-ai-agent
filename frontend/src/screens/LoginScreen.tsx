@@ -2,6 +2,9 @@
  * Login / register screen. Errors from the main process arrive as coded
  * IpcErrors and are rendered via friendlyError(); the backend URL can be
  * changed from here (gear icon) because login itself may need it.
+ * When the previous session could not be restored, a clear banner says
+ * WHY (expired vs backend unreachable) instead of silently landing on
+ * the login form.
  */
 import { useState } from "react";
 import { useAppStore } from "../stores/app";
@@ -14,14 +17,30 @@ export function LoginScreen({
 }: {
   onOpenSettings: () => void;
 }) {
-  const { login, register } = useAppStore();
+  const {
+    login,
+    register,
+    sessionExpired,
+    sessionUnreachable,
+    refreshSession,
+  } = useAppStore();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
+
+  const retrySessionCheck = async (): Promise<void> => {
+    setRechecking(true);
+    try {
+      await refreshSession();
+    } finally {
+      setRechecking(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -77,6 +96,33 @@ export function LoginScreen({
             ⚙
           </button>
         </div>
+
+        {sessionExpired && (
+          <div
+            role="status"
+            className="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-300"
+          >
+            Your session expired — please log in again.
+          </div>
+        )}
+        {sessionUnreachable && (
+          <div
+            role="status"
+            className="mb-3 flex items-center justify-between gap-3 rounded-md border border-neutral-700 bg-neutral-800/60 px-3 py-2 text-xs text-neutral-300"
+          >
+            <span>
+              Couldn&apos;t reach the backend to restore your session.
+            </span>
+            <button
+              type="button"
+              onClick={() => void retrySessionCheck()}
+              disabled={rechecking}
+              className="shrink-0 rounded border border-neutral-600 px-2 py-0.5 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
+            >
+              {rechecking ? "…" : "Retry"}
+            </button>
+          </div>
+        )}
 
         <form onSubmit={submit} className="space-y-3" noValidate>
           {mode === "register" && (
