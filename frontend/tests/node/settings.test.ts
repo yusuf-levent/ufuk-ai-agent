@@ -80,6 +80,30 @@ describe("SettingsStore", () => {
     expect(store.load().permissionMode).toBe("ask");
   });
 
+  it("a patch keeps the other fields intact (zod partial-with-defaults regression)", async () => {
+    // zod v4's .partial() KEEPS .default() values: a naive
+    // SettingsSchema.partial() patch parsed {activeMode} into a full
+    // object with every default filled in, so every settings:set call
+    // RESET all other fields — e.g. the privacy acknowledgement was
+    // lost right after login when the nav switched modes (found by the
+    // fix-it e2e: the privacy gate came back after clicking Projects).
+    const { SettingsPatchSchema } = await import("@shared/ipc");
+    const parsed = SettingsPatchSchema.parse({ activeMode: "projects" });
+    expect(Object.keys(parsed)).toEqual(["activeMode"]);
+
+    // the real-world chain: acknowledge -> later patch a different key
+    const dir = tmp();
+    const store = new SettingsStore(dir);
+    store.patch({ privacyAcknowledged: true, theme: "light" });
+    store.patch({ activeMode: "projects" });
+    const after = store.load();
+    expect(after.privacyAcknowledged).toBe(true);
+    expect(after.theme).toBe("light");
+    expect(after.activeMode).toBe("projects");
+    // and it round-trips through a fresh instance (file content too)
+    expect(new SettingsStore(dir).load().privacyAcknowledged).toBe(true);
+  });
+
   it("has no allow-everything permission mode in the schema", async () => {
     const { SettingsSchema } = await import("@shared/ipc");
     const mode = SettingsSchema.shape.permissionMode;

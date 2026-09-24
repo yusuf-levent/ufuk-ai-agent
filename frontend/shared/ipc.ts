@@ -58,31 +58,48 @@ const HttpUrlSchema = z.url().refine(
   { message: "URL must use http or https" },
 );
 
+/**
+ * Field schemas WITHOUT defaults, shared by the full Settings schema and
+ * its patch schema. Kept separate because zod v4's .partial() KEEPS the
+ * .default() of each field (a missing key parses to the default value),
+ * which would make every settings:set patch RESET all other fields to
+ * their defaults — e.g. losing privacyAcknowledged after login.
+ */
+const SettingsFields = {
+  backendUrl: HttpUrlSchema,
+  theme: z.enum(["dark", "light"]),
+  defaultTier: z.string().min(1),
+  permissionMode: z.enum(["ask", "auto-edits"]),
+  privacyAcknowledged: z.boolean(),
+  activeMode: z.enum(["chat", "projects"]),
+};
+
 export const SettingsSchema = z.object({
   /** Gateway API root (no /v1). The renderer never fetches it directly. */
-  backendUrl: HttpUrlSchema.default("http://localhost:8000"),
-  theme: z.enum(["dark", "light"]).default("dark"),
+  backendUrl: SettingsFields.backendUrl.default("http://localhost:8000"),
+  theme: SettingsFields.theme.default("dark"),
   /** Default tier alias (fast/balanced/strong). */
-  defaultTier: z.string().min(1).default("fast"),
+  defaultTier: SettingsFields.defaultTier.default("fast"),
   /**
    * Per-project permission mode (Milestone 7): 'ask' prompts for every
    * write/command; 'auto-edits' auto-approves edits inside the workspace.
    * There is intentionally NO allow-everything mode.
    */
-  permissionMode: z.enum(["ask", "auto-edits"]).default("ask"),
+  permissionMode: SettingsFields.permissionMode.default("ask"),
   /** First-run privacy notice acknowledged (explains gateway routing). */
-  privacyAcknowledged: z.boolean().default(false),
+  privacyAcknowledged: SettingsFields.privacyAcknowledged.default(false),
   /**
    * Top-level mode (nav rework): 'chat' = tool-less conversations, no
    * folder needed; 'projects' = the folder + agent flow. Defaults to
    * 'chat' for fresh installs; a one-time migration flips pre-nav
    * installs with existing projects to 'projects'.
    */
-  activeMode: z.enum(["chat", "projects"]).default("chat"),
+  activeMode: SettingsFields.activeMode.default("chat"),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
-export const SettingsPatchSchema = SettingsSchema.partial();
+/** True partial: only keys present in the payload survive the parse. */
+export const SettingsPatchSchema = z.object(SettingsFields).partial();
 export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
 
 // ---------------------------------------------------------------------------
