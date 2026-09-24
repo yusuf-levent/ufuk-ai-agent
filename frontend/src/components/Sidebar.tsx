@@ -5,6 +5,10 @@
  * projects (add/remove, git-repo warning) + the selected project's
  * conversations. Switching modes never resets either slice — both live
  * in the same Zustand store.
+ *
+ * Bottom-left account area (Codex/Claude-style): avatar + email + gear
+ * opening the settings dialog; the header keeps only title/credits/
+ * copy/logout.
  */
 import { useState } from "react";
 import { useAppStore } from "../stores/app";
@@ -25,9 +29,10 @@ function relativeTime(iso: string): string {
   return new Date(then).toLocaleDateString();
 }
 
-export function Sidebar() {
+export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
+  const session = useAppStore((s) => s.session);
   const {
     projects,
     activeRoot,
@@ -204,6 +209,33 @@ export function Sidebar() {
           {error}
         </div>
       )}
+
+      {/* bottom-left account area (Codex-style): avatar + email + gear */}
+      <div className="mt-auto flex items-center gap-2 border-t border-neutral-800 px-3 py-2.5">
+        <div
+          className="flex h-7 w-7 shrink-0 select-none items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-xs font-bold text-white"
+          aria-hidden="true"
+        >
+          {(session?.displayName ?? session?.email ?? "?")
+            .slice(0, 1)
+            .toUpperCase()}
+        </div>
+        <span
+          className="min-w-0 flex-1 truncate text-xs text-neutral-400"
+          title={session?.email ?? ""}
+        >
+          {session?.displayName ?? session?.email ?? "not logged in"}
+        </span>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Settings"
+          aria-label="Settings"
+          className="shrink-0 rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+        >
+          ⚙
+        </button>
+      </div>
     </aside>
   );
 }

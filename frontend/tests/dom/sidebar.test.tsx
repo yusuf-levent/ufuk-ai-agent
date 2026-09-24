@@ -40,7 +40,7 @@ const projectsList: ProjectInfo[] = [];
 const render = async (): Promise<void> => {
   root = createRoot(container);
   await act(async () => {
-    root?.render(<Sidebar />);
+    root?.render(<Sidebar onOpenSettings={() => {}} />);
   });
 };
 
@@ -219,6 +219,52 @@ describe("Sidebar", () => {
 });
 
 describe("Sidebar mode switcher (nav rework)", () => {
+  it("bottom-left account area shows the user and opens settings via the gear", async () => {
+    useAppStore.setState({
+      mode: "chat",
+      session: {
+        userId: "u1",
+        email: "ada@example.com",
+        displayName: null,
+        usingPlainTokenStore: false,
+      },
+    });
+    let settingsOpened = 0;
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<Sidebar onOpenSettings={() => (settingsOpened += 1)} />);
+    });
+    // avatar initial + email in the account row
+    expect(container.textContent).toContain("ada@example.com");
+    const avatar = container.querySelector(".bg-gradient-to-br");
+    expect(avatar?.textContent?.trim()).toBe("A");
+    // the gear opens settings (the only ⚙ entry point in the shell)
+    const gear = container.querySelector(
+      'button[aria-label="Settings"]',
+    ) as HTMLButtonElement | null;
+    expect(gear).toBeTruthy();
+    await act(async () => {
+      gear?.click();
+    });
+    expect(settingsOpened).toBe(1);
+    useAppStore.setState({ session: null });
+  });
+
+  it("prefers the display name over the email in the account area", async () => {
+    useAppStore.setState({
+      mode: "chat",
+      session: {
+        userId: "u1",
+        email: "ada@example.com",
+        displayName: "Ada Lovelace",
+        usingPlainTokenStore: false,
+      },
+    });
+    await render();
+    expect(container.textContent).toContain("Ada Lovelace");
+    useAppStore.setState({ session: null });
+  });
+
   it("renders the Chat/Projects segmented control with the active mode highlighted", async () => {
     useAppStore.setState({ mode: "chat" });
     await render();

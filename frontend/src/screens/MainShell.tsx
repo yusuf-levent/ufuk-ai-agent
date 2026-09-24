@@ -20,7 +20,7 @@ import { ChangesPanel } from "../components/ChangesPanel";
 import { CreditIndicator } from "../components/CreditIndicator";
 
 export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const { session, logout, mode } = useAppStore();
+  const { logout, mode } = useAppStore();
   const {
     activeConversation,
     activeConversationId,
@@ -131,10 +131,11 @@ export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   return (
     <div className="flex h-full bg-neutral-950 text-neutral-100">
-      <Sidebar />
+      <Sidebar onOpenSettings={onOpenSettings} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* header */}
+        {/* header: title + credits + copy + logout (account/settings moved
+            to the sidebar's bottom-left area, Codex-style) */}
         <header className="flex h-11 shrink-0 items-center gap-3 border-b border-neutral-800 px-4">
           <span className="truncate text-sm font-medium">{title}</span>
           {mode === "projects" && activeProject && !activeProject.isGitRepo && (
@@ -162,16 +163,6 @@ export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
                 {copied ? "✓ copied" : "⧉ copy"}
               </button>
             )}
-            <span className="text-neutral-500">{session?.email}</span>
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              title="Settings"
-              aria-label="Settings"
-              className="rounded border border-neutral-700 px-2 py-1 text-neutral-400 hover:bg-neutral-800"
-            >
-              ⚙
-            </button>
             <button
               type="button"
               onClick={() => void doLogout()}
