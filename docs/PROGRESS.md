@@ -1,5 +1,37 @@
 # Ufuk — Progress
 
+## 2026-09-24 — Project Map Feature (Token Optimization) — DONE
+
+Implemented a lightweight, tool-independent `projectMap` module in `packages/local-runner` to provide the agent with workspace layout and symbol context on startup, reducing exploratory tool calls (`list_dir` / `read_file`).
+
+### What was done
+
+1. **`projectMap` module (`packages/local-runner/src/project-map/`)**:
+   - **Ignore patterns (`ignore.ts`)**: Respects standard project skips (`.git`, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`, `coverage`, etc.) plus binary asset extensions.
+   - **Signature extraction (`signatures.ts`)**: Lightweight regex-based extraction of exported functions, classes, types, and variables for TypeScript/JavaScript and Python without an AST dependency.
+   - **Tree & builder (`builder.ts`)**: Walks the workspace, builds map entries, renders bounded text representation (`charBudget`, default 40k chars), supports deterministic relevance filtering (`selectRelevantEntries`).
+   - **Incremental caching (`cache.ts`)**: Persists `project-map.json` in per-project app data. Recomputes incrementally (`updateMapEntry` on file upsert/delete).
+2. **System Prompt Integration**:
+   - `buildSystemPrompt` in `@evren/agent-core` accepts optional `projectMap` text and injects it into `<project-map>...</project-map>`, instructing the model that the map is a hint and files must still be read before editing.
+3. **CLI & REPL Support**:
+   - Automatically loads/builds the project map on startup and passes it to `buildSystemPrompt`.
+   - Added REPL commands `/map [query]` (inspect current map or filter by query) and `/map-rebuild` (force full rebuild).
+4. **Tests & Verification**:
+   - 30 unit tests in `packages/local-runner/test/project-map.test.ts` covering AST-free signature extraction, build, ignore handling, incremental updates, truncation, relevance ranking, caching, and fixture smoke testing.
+   - Full suite passes: **267 passed** across monorepo (76 agent-core + 191 local-runner).
+   - `typecheck` and `lint` clean.
+
+### Before / After Tool-Call Comparison (sample-repo scenario)
+
+- **Before (without Project Map)**:
+  - Agent starts cold with no file layout awareness.
+  - Requires initial exploratory tool call (`list_dir` or `glob`) to discover repository contents before targeting files.
+  - In sample fixture test scenario: **2 tool calls** (`list_dir` -> `read_file`).
+- **After (with Project Map)**:
+  - Agent immediately sees repository files (`package.json`, `sum.js`, `test.js`) and structural hints in the system prompt.
+  - Skips exploratory discovery calls and directly invokes `read_file` on `sum.js`.
+  - In sample fixture test scenario: **1 tool call** (`read_file`) — **50% reduction in exploratory tool calls and associated turn roundtrips / prompt tokens**.
+
 ## 2026-09-24 — UX/bugfix pass (issue brief, 4 issues) — DONE
 
 Real-usage feedback pass. Scope: exactly the four briefs; no MCP /
