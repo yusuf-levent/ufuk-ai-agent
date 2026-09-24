@@ -215,16 +215,19 @@ describe("Composer tier selector (live catalog)", () => {
   });
 });
 
-describe("CreditIndicator (usage)", () => {
-  it("renders the remaining/limit bar and plan tooltip", async () => {
+describe("CreditIndicator (usage, Issue 3 rework)", () => {
+  it("shows remaining-first wording with the critical color near exhaustion (5/100 left)", async () => {
     await act(async () => {
       await useModelsStore.getState().refresh();
     });
     await render(<MainShell onOpenSettings={() => {}} />);
-    expect(container.textContent).toContain("5");
+    // remaining-first: "5 credits left of 100" — not "5 / 100"
+    expect(container.textContent).toContain("credits left of");
     expect(container.textContent).toContain("100");
-    // near-limit bar turns red (95%)
+    // <10% remaining -> red bar
     const bar = container.querySelector(".bg-red-500");
     expect(bar).toBeTruthy();
+    // amber must NOT appear at 95% used / 5% remaining
+    expect(container.querySelector(".bg-amber-500")).toBeFalsy();
   });
 });

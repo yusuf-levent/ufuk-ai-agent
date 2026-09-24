@@ -17,60 +17,7 @@ import { Transcript } from "../components/Transcript";
 import { Composer } from "../components/Composer";
 import { ApprovalModal } from "../components/ApprovalModal";
 import { ChangesPanel } from "../components/ChangesPanel";
-
-function CreditIndicator() {
-  const usage = useModelsStore((s) => s.usage);
-  const usageError = useModelsStore((s) => s.usageError);
-  const usageErrorCode = useModelsStore((s) => s.usageErrorCode);
-  if (usage) {
-    const pct =
-      usage.creditLimit > 0
-        ? Math.min(100, (usage.creditsUsed / usage.creditLimit) * 100)
-        : 0;
-    return (
-      <span
-        className="flex items-center gap-1.5 text-neutral-400"
-        title={`${usage.planName} · period ends ${
-          usage.periodEnd ? new Date(usage.periodEnd).toLocaleDateString() : "—"
-        } · ${usage.requestsPerMinute} req/min`}
-      >
-        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-neutral-800">
-          <span
-            className={
-              "block h-full " +
-              (pct > 90
-                ? "bg-red-500"
-                : pct > 70
-                  ? "bg-amber-500"
-                  : "bg-sky-500")
-            }
-            style={{ width: `${pct}%` }}
-          />
-        </span>
-        <span className="tabular-nums text-[10px]">
-          {usage.creditsRemaining.toLocaleString(undefined, {
-            maximumFractionDigits: 1,
-          })}{" "}
-          /{" "}
-          {usage.creditLimit.toLocaleString(undefined, {
-            maximumFractionDigits: 0,
-          })}
-        </span>
-      </span>
-    );
-  }
-  if (usageErrorCode === "subscription_inactive") {
-    return (
-      <span
-        className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300"
-        title={usageError ?? undefined}
-      >
-        no active subscription
-      </span>
-    );
-  }
-  return null;
-}
+import { CreditIndicator } from "../components/CreditIndicator";
 
 export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { session, logout, mode } = useAppStore();
