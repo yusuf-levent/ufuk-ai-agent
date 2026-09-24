@@ -1,53 +1,132 @@
 # Ufuk — Progress
 
-## 2026-09-23 — UX/bugfix pass (issue brief, 4 issues) — PLAN
+## 2026-09-24 — UX/bugfix pass (issue brief, 4 issues) — DONE
 
-Real-usage feedback pass. Scope: exactly the four briefs below; no MCP /
+Real-usage feedback pass. Scope: exactly the four briefs; no MCP /
 GitHub / scheduling / cloud / signing / payments.
 
-1. **Top-level nav: Chat vs Projects.** Two modes behind a segmented
-   control at the top of the sidebar. **Decision: Chat mode is
-   tool-less** — no file/shell/git tools are registered for chat runs
-   (simplest with the current architecture: the Agent's ToolRegistry and
-   PermissionGate are optional; the runtime branches once on the root).
-   Chat conversations persist in a dedicated app-owned store
-   (`userData/chat-workspace` root, store under `userData/db/<hash>`,
-   same engine), reached through the EXISTING conversations/chat IPC
-   channels via the reserved root id `"ufuk:chat"` (main maps it to the
-   real dir; it never enters projects.json, so Projects mode is
-   untouched). Renderer: `activeMode` setting (`chat` | `projects`),
-   separate chat/projects store slices so switching never loses state.
-   Migration: pre-nav installs (settings.json without `activeMode`)
-   default to `projects` when projects exist, else `chat`; project
-   data/conversations do not move at all (zero loss by construction) —
-   test seeds a pre-change userData and asserts everything still loads.
-2. **Session persistence across restart.** Root causes found: (a)
-   userData dir differs per launch mode (`%APPDATA%\Ufuk` packaged,
-   `%APPDATA%\ufuk` for `pnpm start`, `%APPDATA%\Electron` for some dev
-   launches) so tokens/settings/projects are fragmented; (b) refresh
-   failure (ReauthRequiredError) is swallowed by fetchSessionInfo and
-   silently drops to the login screen. Fix: pin userData to one
-   canonical dir in every launch mode (legacy dirs merged in, newest
-   wins, zero loss — migration + test), and make `auth:session` return a
-   reason (`expired` / `unreachable`) so the login screen can say
-   "session expired, please log in again" or offer a retry instead of a
-   silent logout. Tests: simulated restart (new session object on the
-   same dir) restores the session when tokens are valid; a real
-   launch → login → close → relaunch e2e.
-3. **Credit indicator rework.** Remaining-first wording
-   ("82 credits left of 100"), color only warns near exhaustion
-   (amber <25% left, red <10% left), a click breakdown (plan, used,
-   remaining, reset date), and a distinct zero-credit state ("Monthly
-   credits used up — resets on <date>") instead of a full bar. Unit
-   tests for the low/zero states.
-4. **Settings entry bottom-left.** Account area (avatar + email + gear)
-   at the bottom of the sidebar, Codex-style; header keeps title /
-   credits / copy / logout. SettingsDialog itself unchanged.
+### Issue 1 — Top-level nav: Chat vs Projects
 
-Verification: frontend unit + typecheck + lint, e2e smoke + fix-it
-(real stack), new session-restore e2e, agent + backend suites re-run
-(re-seed plans after backend tests), screenshots of the new
-nav/indicator/settings into docs/screenshots/.
+- **Decision (documented): Chat mode is tool-less.** A chat conversation
+  registers ZERO tools (no filesystem/shell/git) — the simplest correct
+  option with the current architecture (the Agent's ToolRegistry and
+  PermissionGate are optional). A dedicated `CHAT_SYSTEM_PROMPT` tells
+  the model it has no tools and suggests Projects mode for file work.
+- Chat conversations live in an app-owned workspace
+  (`userData/chat-workspace`, store under `userData/db/<hash>`, same
+  engine as projects) behind the reserved root id `"ufuk:chat"`
+  (`CHAT_ROOT_ID` in shared/ipc.ts). The renderer passes the sentinel
+  through the EXISTING conversations/chat IPC channels — ProjectManager
+  maps it to the real dir; it never enters projects.json, so Projects
+  mode is untouched (approvals/checkpoints/diff panels render only
+  there).
+- Sidebar: segmented `Chat | Projects` switcher (role=tablist); a shared
+  `ConversationList` component serves both modes. Both mode slices live
+  in the same Zustand stores, so switching never loses state.
+- Migration: `activeMode` setting (`chat` | `projects`, default `chat`);
+  a one-time migration flips pre-nav installs that have projects to
+  `projects` (idempotent, `migrate.ts`). Project data never moves —
+  zero-loss by construction, with a test that seeds a pre-rework
+  userData (settings + project + conversations + messages) and boots it.
+- Tests: node chat-workspace/toolset/migration suite (10), nav-modes +
+  sidebar DOM suites (13).
+
+### Issue 2 — Session persistence across restart
+
+Root causes found:
+
+1. **userData fragmented per launch mode** — packaged wrote
+   `%APPDATA%\Ufuk`, `pnpm start` wrote `%APPDATA%\ufuk` (the SAME
+   directory on Windows's case-insensitive FS — so those two were
+   actually shared), but plain dev launches wrote `%APPDATA%\Electron`.
+   Tokens/settings/projects split across dirs → re-login on every mode
+   switch.
+2. **Silent logout on refresh failure** — `fetchSessionInfo` swallowed
+   ReauthRequiredError and returned null; the user just landed on the
+   login screen with no explanation. A gateway that was briefly down at
+   startup looked identical to a dead session.
+
+Fixes:
+
+- userData is **pinned to `%APPDATA%\Ufuk` in every launch mode**
+  (canonical dir; tests keep the `UFUK_USER_DATA_DIR` override).
+  Legacy dirs are merged into the canonical dir on boot: per app-owned
+  key (`settings.json`, `projects.json`, `gateway/`, `db/`) the newest
+  existing copy is brought in when missing; canonical is never
+  overwritten; unknown files ignored — idempotent, zero data loss
+  (`electron/main/userdata.ts`).
+- `auth:session` now returns a restore snapshot `{ info, reason }` with
+  reason `expired` | `unreachable`. The login screen shows a clear
+  "Your session expired — please log in again" banner or a retryable
+  "Couldn't reach the backend to restore your session" state instead of
+  silently dropping to the form.
+- Tests: simulated-restart gateway tests (restore with valid token,
+  refresh on expired access token, expired refresh → reason, unreachable
+  → reason), userData migration matrix (8), login-screen banner DOM
+  tests, and a real e2e: **launch → login → close the app → relaunch on
+  the same userData → still logged in** (screenshots 08-10).
+
+### Issue 2.5 — FOUND AND FIXED: settings:set wiped defaulted fields
+
+While verifying the fix-it e2e, the privacy gate came BACK after
+clicking the Projects tab (acknowledged → login → mode switch → gate).
+Root cause: **zod v4's `.partial()` keeps each field's `.default()`** —
+`SettingsSchema.partial().parse({activeMode})` produced a full object
+with every default filled in (`privacyAcknowledged: false` included),
+and the settings:set handler merged that over the stored settings. So
+EVERY settings patch since M4 reset all other fields to their defaults
+(invisible until now because nothing patched settings after login).
+Fix: default-free `SettingsFields` map; full schema applies
+`.default()` per field, patch schema is a true partial. Regression
+tests at schema level and through the SettingsStore chain.
+
+### Issue 3 — Credit indicator rework
+
+Extracted `CreditIndicator.tsx` (was inline in MainShell):
+
+- Remaining-first wording: "**82 credits left of 100**" (was "82 / 100",
+  which read as limit-reached at 18% usage).
+- Color only warns near exhaustion: sky normally, amber <25% remaining,
+  red <10% remaining (was amber at 70% used, red at 90%).
+- Click opens a breakdown: plan name, used, remaining, reset date,
+  requests/min.
+- Zero credits is a distinct state — a red "credits used up — resets
+  <date>" badge, no misleading full bar; breakdown works there too.
+- Tests: 7 unit tests covering healthy/low/critical/exhausted matrix,
+  breakdown content, subscription-inactive badge.
+
+### Issue 4 — Settings entry bottom-left
+
+Codex/Claude-style account area at the bottom of the sidebar: avatar
+circle (first letter of display name/email), account name, gear button
+opening the (functionally unchanged) settings dialog. Header keeps
+title / credits / copy / logout only. DOM tests cover avatar, name
+preference and the gear wiring. No e2e navigated settings via the old
+header location (verified by grep).
+
+### Verification (all green)
+
+| Component | Tests |
+|---|---|
+| evren-agent (untouched) | **237 passed** (76 + 161) |
+| evren-backend (untouched) | **115 passed** (plans re-seeded after) |
+| frontend unit | **173 passed** (19 files; +45 net) |
+| frontend e2e | **14 passed** (12 smoke + 1 session-restore + 1 fix-it full scenario vs the REAL upstream) |
+
+- typecheck + eslint + prettier clean.
+- The fix-it e2e re-verified the full regression surface end to end:
+  login → add project → agent fixes the failing test (real model,
+  approvals, npm test) → diff → undo — with the new Chat/Projects nav
+  (it now switches to Projects after login).
+- Screenshots: `01-07` refreshed (new nav), `08-10` session
+  restore/chat mode, `11` remaining-first credits, `12` credit
+  breakdown, `13` bottom-left settings.
+
+### Commits
+
+- `chore(frontend)`: fix pre-existing prettier drift (12 files, formatting only)
+- `feat(frontend)` ×4: one per issue (nav, session, credits, settings)
+- `fix(frontend)`: zod partial-with-defaults settings wipe (found during this pass)
 
 ## 2026-09-23 — Milestone 10: E2E, packaging, launch (FINAL)
 

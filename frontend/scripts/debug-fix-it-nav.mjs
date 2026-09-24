@@ -103,20 +103,6 @@ const settingsNow = await win.evaluate(async () => {
   return window.ufuk.invoke("settings:get");
 });
 console.log("[settings:get after tab click]", JSON.stringify(settingsNow));
-const rawFile = await app.evaluate(({ BrowserWindow }) => {
-  const fs = require("node:fs");
-  const path = require("node:path");
-  void BrowserWindow;
-  const dir = process.env["UFUK_USER_DATA_DIR"];
-  return {
-    dir,
-    files: fs.existsSync(String(dir)) ? fs.readdirSync(String(dir)) : "missing",
-    settings: fs.existsSync(path.join(String(dir), "settings.json"))
-      ? fs.readFileSync(path.join(String(dir), "settings.json"), "utf8")
-      : "missing",
-  };
-});
-console.log("[userData]", JSON.stringify(rawFile, null, 2));
 await step("+ Add visible", () =>
   win
     .getByRole("button", { name: "+ Add" })
