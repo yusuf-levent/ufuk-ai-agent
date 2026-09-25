@@ -32,6 +32,9 @@ const settings = (backendUrl: string) => ({
   permissionMode: "ask" as const,
   privacyAcknowledged: true,
   activeMode: "chat" as const,
+  enterToSend: true,
+  maxSteps: 30,
+  autoRetryEmptyResponses: false,
 });
 
 /** Mock gateway: /auth/login + /auth/refresh tokens, /me profile. */

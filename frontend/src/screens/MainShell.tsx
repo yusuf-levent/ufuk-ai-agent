@@ -13,7 +13,7 @@ import { useProjectsStore } from "../stores/projects";
 import { useChatStore } from "../stores/chat";
 import { useModelsStore } from "../stores/models";
 import { Sidebar } from "../components/Sidebar";
-import { Transcript } from "../components/Transcript";
+import { Transcript, Elapsed } from "../components/Transcript";
 import { Composer } from "../components/Composer";
 import { ApprovalModal } from "../components/ApprovalModal";
 import { ChangesPanel } from "../components/ChangesPanel";
@@ -147,8 +147,9 @@ export function MainShell({ onOpenSettings }: { onOpenSettings: () => void }) {
             </span>
           )}
           {turn?.running && (
-            <span className="animate-pulse text-[10px] text-sky-400">
-              working…
+            <span className="flex items-center gap-1.5 text-[10px] text-sky-400">
+              <span className="animate-pulse">working…</span>
+              <Elapsed since={turn.startedAt} />
             </span>
           )}
           <div className="ml-auto flex items-center gap-2 text-xs">

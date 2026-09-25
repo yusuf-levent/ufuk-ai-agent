@@ -28,7 +28,12 @@ const tmp = (): string => {
 afterAll(() => {
   for (const d of dirs) {
     try {
-      rmSync(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      rmSync(d, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 100,
+      });
     } catch {
       // ignore (sqlite WAL files on Windows)
     }
@@ -96,9 +101,9 @@ describe("AgentRuntime persists before emitting done (bug-1 regression)", () => 
     const order: string[] = [];
     const events: ChatEventPayload[] = [];
     const origAppend = opened.store.appendMessages.bind(opened.store);
-    opened.store.appendMessages = async (...args: Parameters<
-      typeof origAppend
-    >) => {
+    opened.store.appendMessages = async (
+      ...args: Parameters<typeof origAppend>
+    ) => {
       await origAppend(...args);
       order.push("append");
     };
@@ -109,18 +114,22 @@ describe("AgentRuntime persists before emitting done (bug-1 regression)", () => 
       webContents: {
         send: (_channel: string, payload: ChatEventPayload) => {
           events.push(payload);
-          if (payload.event.type === "done") order.push("done");
+          if ("event" in payload && payload.event.type === "done")
+            order.push("done");
         },
       },
     };
 
     // route projects.store() to the patched instance (cache override)
     const projectsWithPatch = Object.create(projects) as ProjectManager;
-    (projectsWithPatch as unknown as { store: (r: string) => Promise<OpenedStore> }).store =
-      (root: string) =>
-        root === CHAT_ROOT_ID
-          ? Promise.resolve(patchedOpened)
-          : projects.store(root);
+    (
+      projectsWithPatch as unknown as {
+        store: (r: string) => Promise<OpenedStore>;
+      }
+    ).store = (root: string) =>
+      root === CHAT_ROOT_ID
+        ? Promise.resolve(patchedOpened)
+        : projects.store(root);
 
     const runtime = new AgentRuntime({
       win: () => fakeWin as never,
@@ -132,7 +141,11 @@ describe("AgentRuntime persists before emitting done (bug-1 regression)", () => 
     await runtime.send(CHAT_ROOT_ID, conversationId, "hi there");
 
     // the run streamed its answer and finished
-    const types = events.map((e) => e.event.type);
+    const types = events
+      .filter(
+        (e): e is Extract<ChatEventPayload, { event: unknown }> => "event" in e,
+      )
+      .map((e) => e.event.type);
     expect(types).toContain("message_delta");
     expect(types[types.length - 1]).toBe("done");
 

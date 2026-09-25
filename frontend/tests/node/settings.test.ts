@@ -26,6 +26,9 @@ describe("SettingsStore", () => {
       permissionMode: "ask",
       privacyAcknowledged: false,
       activeMode: "chat",
+      enterToSend: true,
+      maxSteps: 30,
+      autoRetryEmptyResponses: false,
     });
   });
 

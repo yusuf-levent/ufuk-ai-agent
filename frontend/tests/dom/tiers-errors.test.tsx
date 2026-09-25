@@ -82,7 +82,12 @@ beforeEach(() => {
     "projects:list": () => ({ ok: true, value: [] }),
   });
   invoke = bridge.invoke;
-  useChatStore.setState({ turns: {}, lastMessage: {} });
+  useChatStore.setState({
+    turns: {},
+    lastMessage: {},
+    pending: {},
+    drafts: {},
+  });
   useModelsStore.setState({
     catalog: null,
     catalogError: null,
@@ -101,6 +106,9 @@ beforeEach(() => {
       permissionMode: "ask",
       privacyAcknowledged: true,
       activeMode: "projects",
+      enterToSend: true,
+      maxSteps: 30,
+      autoRetryEmptyResponses: false,
     },
     mode: "projects",
     session: {

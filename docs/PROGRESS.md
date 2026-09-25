@@ -1,5 +1,113 @@
 # Ufuk — Progress
 
+## 2026-09-25 — Chat UX rework (optimistic bubbles, run queue, activity indicator, empty-response handling, advanced settings) — DONE
+
+Real-usage feedback pass on the chat experience. Five complaints, five
+root causes found in code, all fixed with tests.
+
+### Issue 1 — sent message only appeared after the model replied
+
+Root cause: the user message was persisted only at run END
+(`persistFresh` on done) and the renderer rendered only persisted
+history + the live assistant output — no optimistic UI existed.
+
+Fix:
+
+- **Main** (`agent-runtime.runTurn`): the user message now persists at
+  run START (`appendMessages` before the agent loop; `persisted` counter
+  adjusted). A crash mid-run can no longer lose the sent message.
+- **Renderer** (`stores/chat.ts`): new `pending` map of optimistic
+  bubbles (`PendingMessage { id, text, userIndex, state }`).
+  `Transcript` renders them above the live turn ('running') or below it
+  ('queued').
+- **Positional dedupe**: main reports the authoritative `userIndex`
+  (0-based position among persisted user messages) via the new `started`
+  queue event; `consumeCovered` drops a bubble once the reloaded history
+  contains that exact position (duplicate texts cannot confuse it).
+  `historyCoversRun` (text match) is replaced for the live assistant
+  preview by `historyCoversAssistant(messages, userIndex)`: "an
+  assistant reply exists AFTER the run's user message" — required
+  because the user message now persists before the reply streams.
+
+### Issue 2 — "i dont know" got no reply, silently
+
+Root cause: `agent-core/loop.ts` ends a turn `done: final` even when the
+model returned no content and no tool calls; the empty assistant message
+is hidden by the transcript (`!m.content`), so nothing at all showed.
+
+Fix:
+
+- `runTurn` tracks `producedContent` + `doneReason` and returns
+  `{ empty }` for empty final turns; the pump emits a NON-fatal error
+  with structured code `empty_response` (added to `ChatErrorInfo`).
+- `FriendlyErrorView` gained an `empty_response` case with explanation
+  and a Retry hint (the composer retry row uses the turn's `userText`).
+- New setting `autoRetryEmptyResponses` (default off): the pump re-runs
+  the SAME message once (the retry rebuilds the model context without
+  re-persisting the user message or the empty assistant turn).
+
+### Issue 3 — no visible activity while the model works
+
+Fix: `ActivityLine` in the live turn — thinking dots (`ThinkingDots`,
+role=status) before the first token, `writing…`/`working — step N` with
+a live `Elapsed` timer (1s tick) while streaming, `step` events now fold
+into `turn.stepCount`, an amber "waiting for your approval" hint when
+blocked, and a `▍` cursor appended to streaming text. The header's
+"working…" pulse also shows the live elapsed time, and the composer
+hint reflects the Enter/Ctrl+Enter send setting.
+
+### Issue 4 — composer locked while the AI replies
+
+Root cause: `disabled={running}` + `if (running) return` in the
+composer, and `AgentRuntime.send` bounced concurrent sends with a fatal
+"This conversation is already running." error.
+
+Fix:
+
+- **Main-process queue**: `send()` parks messages in a per-conversation
+  FIFO queue (queue events `queued`/`started`/`cleared` on the existing
+  `chat:event` channel via a discriminated `ChatEventPayload` union);
+  `pump()` runs them strictly one at a time; the "already running"
+  bounce is gone. Messages that race the drain are picked up in the
+  pump's finally (never stranded).
+- `stop()` aborts the active run AND clears the queue, pushing the
+  queued texts back (`cleared`) — the renderer restores them into the
+  composer input (`drafts` map), so nothing typed is lost.
+- Composer: textarea never disabled; Enter still sends mid-run (the
+  message queues); Stop shown while running or queued; tier selector
+  unlocked (the model is captured per send anyway).
+
+### Issue 5 — settings too basic
+
+`SettingsDialog` rebuilt as a tabbed dialog (General / Agent /
+Connection / Data & Privacy / About):
+
+- General: theme, default tier from the live catalog (display name +
+  upstream model, locked tiers with reason), permission mode, new
+  `enterToSend` toggle (Enter vs Ctrl+Enter).
+- Agent: `maxSteps` slider (5-50, default 30 — now wired into the Agent
+  options) and `autoRetryEmptyResponses`.
+- Connection: backend URL + **Test connection** (new `gateway:test` IPC:
+  main fetches `GET {backendUrl}/health`, 5s timeout, reports ok/detail).
+- Data & Privacy: account (email, name, plan + credits, token storage
+  mode), open the user-data folder (new `app:open-user-data` IPC — the
+  path never crosses to the renderer), log out.
+- About: app/Electron/Node versions (lazy `app:version`).
+
+### Tests
+
+- **196 unit tests pass** (was 128; +68): new
+  `tests/node/agent-runtime-queue.test.ts` (queue ordering, start-time
+  persistence, stop-clears-queue, empty-response error, auto-retry),
+  extended `chat.test.tsx` (optimistic bubbles, queue-event folding,
+  positional coverage, thinking indicator, empty-response view, mid-run
+  send), `auth-flow.test.tsx` (tabbed settings, health check,
+  maxSteps/toggle patches), contract tests for the new channels and
+  settings fields. All settings fixtures updated with the new fields.
+- `pnpm typecheck`, `pnpm lint` clean; `pnpm build` ok; app relaunched
+  against the running backend and verified.
+- `evren-agent` untouched — single-repo change.
+
 ## 2026-09-24 — Project Map Feature (Token Optimization) — DONE
 
 Implemented a lightweight, tool-independent `projectMap` module in `packages/local-runner` to provide the agent with workspace layout and symbol context on startup, reducing exploratory tool calls (`list_dir` / `read_file`).

@@ -72,6 +72,12 @@ const SettingsFields = {
   permissionMode: z.enum(["ask", "auto-edits"]),
   privacyAcknowledged: z.boolean(),
   activeMode: z.enum(["chat", "projects"]),
+  /** Enter sends the composer (true) or inserts a newline (Ctrl+Enter sends). */
+  enterToSend: z.boolean(),
+  /** Max LLM turns that execute tool calls per run. Range 5-50, default 30. */
+  maxSteps: z.number().int().min(5).max(50),
+  /** Auto-retry once when the model returns an empty final response. */
+  autoRetryEmptyResponses: z.boolean(),
 };
 
 export const SettingsSchema = z.object({
@@ -95,6 +101,10 @@ export const SettingsSchema = z.object({
    * installs with existing projects to 'projects'.
    */
   activeMode: SettingsFields.activeMode.default("chat"),
+  enterToSend: SettingsFields.enterToSend.default(true),
+  maxSteps: SettingsFields.maxSteps.default(30),
+  autoRetryEmptyResponses:
+    SettingsFields.autoRetryEmptyResponses.default(false),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -403,6 +413,7 @@ export const ChatErrorInfoSchema = z.object({
     "upstream_unavailable",
     "upstream_error",
     "timeout",
+    "empty_response",
   ]),
   /** Milliseconds to wait (rate limit / circuit breaker), when known. */
   retryAfterMs: z.number().optional(),
@@ -416,17 +427,53 @@ export const AppVersionResponseSchema = z.object({
 });
 export type AppVersionResponse = z.infer<typeof AppVersionResponseSchema>;
 
+/** gateway:test response: connectivity verdict + human-readable detail. */
+export const GatewayHealthResponseSchema = z.object({
+  ok: z.boolean(),
+  /** e.g. "database: ok, redis: ok" or the failure reason. */
+  detail: z.string(),
+});
+export type GatewayHealthResponse = z.infer<typeof GatewayHealthResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // main -> renderer events
 // ---------------------------------------------------------------------------
 
-/** Payload of the chatEvent channel: an agent event tagged with the run. */
-export interface ChatEventPayload {
+/** An agent event tagged with the run (the classic chat:event payload). */
+export interface ChatAgentEventPayload {
   conversationId: string;
   event: AgentEvent;
   /** Structured error info attached to fatal error events (M8). */
   errorInfo?: ChatErrorInfo;
 }
+
+/**
+ * Run-queue lifecycle pushes on the same chat:event channel: a message was
+ * queued behind an active run ('queued'), a run started for a message —
+ * immediately or after draining the queue ('started') — or stop() dropped
+ * queued messages ('cleared', their texts travel back so the composer can
+ * restore them).
+ */
+export interface ChatQueueEventPayload {
+  conversationId: string;
+  queueEvent: "queued" | "started" | "cleared";
+  /** The message that was queued / started running. */
+  message?: string;
+  /**
+   * 0-based positional index of the run's user message among the user
+   * messages of the persisted history — the authoritative key the renderer
+   * uses to drop the optimistic bubble once the message has landed (and to
+   * tell the live assistant preview apart from already-persisted replies).
+   */
+  userIndex?: number;
+  /** 1-based queue position, attached to 'queued'. */
+  position?: number;
+  /** Every queued (never run) message text, attached to 'cleared'. */
+  messages?: string[];
+}
+
+/** Payload of the chatEvent channel: agent events or queue lifecycle. */
+export type ChatEventPayload = ChatAgentEventPayload | ChatQueueEventPayload;
 
 // ---------------------------------------------------------------------------
 // request/response mapping (type-level table)
@@ -499,6 +546,8 @@ export interface InvokeMap {
   };
   "models:list": { request: undefined; response: TierCatalog };
   "usage:get": { request: undefined; response: UsageInfo };
+  "gateway:test": { request: undefined; response: GatewayHealthResponse };
+  "app:open-user-data": { request: undefined; response: boolean };
 }
 
 /** Typed invoke signature used by the renderer client. */

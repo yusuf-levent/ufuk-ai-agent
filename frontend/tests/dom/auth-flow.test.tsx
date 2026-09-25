@@ -288,6 +288,12 @@ describe("SettingsDialog", () => {
   it("rejects non-http(s) backend URLs without calling the bridge", async () => {
     setStore({});
     await render(<SettingsDialog onClose={() => {}} />);
+    // the backend URL lives on the Connection tab now
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((b) => b.textContent === "Connection")
+        ?.click();
+    });
     const input = container.querySelector(
       "input[type=text]",
     ) as HTMLInputElement;
@@ -301,6 +307,58 @@ describe("SettingsDialog", () => {
     expect(
       invoke.mock.calls.filter(([c]) => c === "settings:set"),
     ).toHaveLength(0);
+  });
+
+  it("Connection tab runs a gateway health check through the bridge", async () => {
+    setStore({});
+    await render(<SettingsDialog onClose={() => {}} />);
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((b) => b.textContent === "Connection")
+        ?.click();
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((b) => b.textContent === "Test connection")
+        ?.click();
+    });
+    expect(
+      invoke.mock.calls.filter(([c]) => c === "gateway:test"),
+    ).toHaveLength(1);
+  });
+
+  it("Agent tab patches maxSteps and the empty-response auto-retry", async () => {
+    setStore({});
+    await render(<SettingsDialog onClose={() => {}} />);
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((b) => b.textContent === "Agent")
+        ?.click();
+    });
+    const range = container.querySelector(
+      'input[type="range"]',
+    ) as HTMLInputElement;
+    expect(range).toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(range, "12");
+      range.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    let setCalls = invoke.mock.calls.filter(([c]) => c === "settings:set");
+    expect(setCalls.at(-1)?.[1]).toMatchObject({ maxSteps: 12 });
+    // the auto-retry toggle (role=switch)
+    await act(async () => {
+      container
+        .querySelector('[role="switch"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    setCalls = invoke.mock.calls.filter(([c]) => c === "settings:set");
+    expect(setCalls.at(-1)?.[1]).toMatchObject({
+      autoRetryEmptyResponses: true,
+    });
   });
 
   it("theme switch patches settings through the bridge", async () => {

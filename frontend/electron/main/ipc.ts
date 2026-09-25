@@ -538,6 +538,56 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return { ok: false, error: mapClientError(err) };
     }
   });
+
+  // -----------------------------------------------------------------------
+  // gateway connectivity + app folder (advanced settings)
+  // -----------------------------------------------------------------------
+
+  register(INVOKE_CHANNELS.gatewayTest, z.void(), async () => {
+    try {
+      const gw = deps.session();
+      const res = await gw.fetchImpl(`${gw.baseURL}/health`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) {
+        return {
+          ok: true,
+          value: { ok: false, detail: `HTTP ${res.status}` } as const,
+        };
+      }
+      const body = (await res.json()) as {
+        status?: string;
+        components?: Record<string, boolean>;
+      };
+      const parts = Object.entries(body.components ?? {}).map(
+        ([name, up]) => `${name}: ${up ? "ok" : "down"}`,
+      );
+      return {
+        ok: true,
+        value: {
+          ok: body.status === "ok",
+          detail: parts.length > 0 ? parts.join(", ") : (body.status ?? "ok"),
+        } as const,
+      };
+    } catch (err) {
+      return {
+        ok: true,
+        value: {
+          ok: false,
+          detail: err instanceof Error ? err.message : String(err),
+        } as const,
+      };
+    }
+  });
+
+  register(INVOKE_CHANNELS.appOpenUserData, z.void(), async () => {
+    try {
+      await shell.openPath(deps.userDataDir);
+      return { ok: true, value: true };
+    } catch {
+      return { ok: true, value: false };
+    }
+  });
 }
 
 function workspaceRelativeEq(

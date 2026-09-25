@@ -145,6 +145,19 @@ export const INVOKE_CHANNELS = {
    * gateway_unreachable.
    */
   usageGet: "usage:get",
+  /**
+   * Connectivity check for Settings: fetches GET {backendUrl}/health through
+   * the gateway session (no auth needed). Request: void. Response:
+   * GatewayHealthResponse { ok, detail } — ok is false on HTTP/network
+   * errors, the channel itself never rejects.
+   */
+  gatewayTest: "gateway:test",
+  /**
+   * Open the Electron user-data folder in the OS file explorer. Request:
+   * void. Response: boolean. The path itself is never returned to the
+   * renderer (path disclosure stays in main).
+   */
+  appOpenUserData: "app:open-user-data",
 } as const;
 
 /** Main -> renderer, push events (payload schemas in shared/ipc.ts). */

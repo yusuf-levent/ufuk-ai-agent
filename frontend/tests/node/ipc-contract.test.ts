@@ -68,6 +68,8 @@ describe("channel allowlists", () => {
       "checkpoints:diff",
       "models:list",
       "usage:get",
+      "gateway:test",
+      "app:open-user-data",
     ];
     const invokeValues = Object.values(INVOKE_CHANNELS);
     // every InvokeMap key is a registered channel...
@@ -165,7 +167,26 @@ describe("payload schemas", () => {
       permissionMode: "ask",
       privacyAcknowledged: false,
       activeMode: "chat",
+      enterToSend: true,
+      maxSteps: 30,
+      autoRetryEmptyResponses: false,
     });
+  });
+
+  it("advanced settings validate their ranges (maxSteps 5-50)", () => {
+    expect(SettingsPatchSchema.safeParse({ maxSteps: 5 }).success).toBe(true);
+    expect(SettingsPatchSchema.safeParse({ maxSteps: 50 }).success).toBe(true);
+    expect(SettingsPatchSchema.safeParse({ maxSteps: 4 }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ maxSteps: 51 }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ maxSteps: 12.5 }).success).toBe(
+      false,
+    );
+    expect(SettingsPatchSchema.safeParse({ enterToSend: "yes" }).success).toBe(
+      false,
+    );
+    expect(
+      SettingsPatchSchema.safeParse({ autoRetryEmptyResponses: true }).success,
+    ).toBe(true);
   });
 
   it("openExternal requires a URL (main re-validates protocol)", () => {

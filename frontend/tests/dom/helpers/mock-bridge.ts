@@ -13,6 +13,9 @@ export const defaultSettings: Settings = {
   permissionMode: "ask",
   privacyAcknowledged: false,
   activeMode: "chat",
+  enterToSend: true,
+  maxSteps: 30,
+  autoRetryEmptyResponses: false,
 };
 
 export const defaultPrivacyInfo = {

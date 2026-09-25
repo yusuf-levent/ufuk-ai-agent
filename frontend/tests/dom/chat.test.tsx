@@ -14,6 +14,7 @@ import {
   Transcript,
   LiveTurnView,
   historyCoversRun,
+  historyCoversAssistant,
 } from "../../src/components/Transcript";
 import { ApprovalModal } from "../../src/components/ApprovalModal";
 import { Composer } from "../../src/components/Composer";
@@ -60,11 +61,22 @@ const key = async (
   });
 };
 
-const emit = (event: unknown): void => {
+const emit = (event: unknown, errorInfo?: unknown): void => {
   act(() => {
     useChatStore.getState().handleEvent({
       conversationId: "c_1",
       event,
+      ...(errorInfo ? { errorInfo } : {}),
+    } as never);
+  });
+};
+
+/** Push a run-queue lifecycle payload (queued/started/cleared). */
+const emitQueue = (payload: Record<string, unknown>): void => {
+  act(() => {
+    useChatStore.getState().handleEvent({
+      conversationId: "c_1",
+      ...payload,
     } as never);
   });
 };
@@ -79,7 +91,12 @@ beforeEach(() => {
   document.body.appendChild(container);
   const bridge = installBridge();
   invoke = bridge.invoke;
-  useChatStore.setState({ turns: {}, lastMessage: {} });
+  useChatStore.setState({
+    turns: {},
+    lastMessage: {},
+    pending: {},
+    drafts: {},
+  });
 });
 
 afterEach(() => {
@@ -88,7 +105,12 @@ afterEach(() => {
     root = null;
   }
   container.remove();
-  useChatStore.setState({ turns: {}, lastMessage: {} });
+  useChatStore.setState({
+    turns: {},
+    lastMessage: {},
+    pending: {},
+    drafts: {},
+  });
 });
 
 describe("chat store event folding", () => {
@@ -499,7 +521,7 @@ describe("Composer", () => {
     expect((textarea as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("disables the input while a run is active and offers Stop", async () => {
+  it("keeps the input ENABLED while a run is active and offers Stop", async () => {
     emit({ type: "message_delta", text: "..." });
     await render(
       <Composer
@@ -508,7 +530,8 @@ describe("Composer", () => {
         onTurnStarted={() => {}}
       />,
     );
-    expect(container.querySelector("textarea")?.disabled).toBe(true);
+    // the input never blocks — messages sent mid-run are queued in main
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
     const stopBtn = [...container.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("Stop"),
     );
@@ -519,5 +542,188 @@ describe("Composer", () => {
     const calls = invoke.mock.calls.filter(([c]) => c === "chat:stop");
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[1]).toEqual({ conversationId: "c_1" });
+  });
+
+  it("sends mid-run instead of bouncing (queue, not block)", async () => {
+    emit({ type: "message_delta", text: "streaming…" });
+    await render(
+      <Composer
+        root="/tmp/proj"
+        conversationId="c_1"
+        onTurnStarted={() => {}}
+      />,
+    );
+    const textarea = container.querySelector("textarea");
+    await type(textarea, "and one more thing");
+    await key(textarea as Element, "Enter");
+    const calls = invoke.mock.calls.filter(([c]) => c === "chat:send");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[1]).toMatchObject({ message: "and one more thing" });
+    // the streaming turn is untouched (no reset mid-run)
+    expect(useChatStore.getState().turns["c_1"]?.text).toBe("streaming…");
+    expect(useChatStore.getState().turns["c_1"]?.running).toBe(true);
+  });
+});
+
+describe("optimistic bubbles & run queue (send-time UX)", () => {
+  it("shows the sent message IMMEDIATELY as a bubble above the live turn", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "hello there");
+    });
+    await render(
+      <Transcript
+        messages={[]}
+        conversationId="c_1"
+        liveTurn={useChatStore.getState().turns["c_1"]}
+      />,
+    );
+    expect(container.textContent).toContain("hello there");
+    expect(useChatStore.getState().pending["c_1"]).toHaveLength(1);
+  });
+
+  it("marks the bubble queued, then running with the authoritative index", () => {
+    void useChatStore.getState().send("/tmp/proj", "c_1", "first");
+    emitQueue({ queueEvent: "queued", message: "first", position: 1 });
+    let pending = useChatStore.getState().pending["c_1"]!;
+    expect(pending[0]?.state).toBe("queued");
+
+    emitQueue({ queueEvent: "started", message: "first", userIndex: 0 });
+    pending = useChatStore.getState().pending["c_1"]!;
+    expect(pending[0]?.state).toBe("running");
+    expect(pending[0]?.userIndex).toBe(0);
+    const turn = useChatStore.getState().turns["c_1"]!;
+    expect(turn.running).toBe(true);
+    expect(turn.userText).toBe("first");
+    expect(turn.userIndex).toBe(0);
+  });
+
+  it("drops a bubble whose message landed in the reloaded history (positional)", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "hello");
+    });
+    emitQueue({ queueEvent: "started", message: "hello", userIndex: 0 });
+    // the reload after 'done' now contains the persisted user message
+    await render(
+      <Transcript
+        conversationId="c_1"
+        messages={[{ role: "user", content: "hello" }]}
+        liveTurn={useChatStore.getState().turns["c_1"]}
+      />,
+    );
+    expect(useChatStore.getState().pending["c_1"]).toHaveLength(0);
+    // exactly one copy renders (from history — not the optimistic bubble)
+    expect((container.textContent ?? "").split("hello").length - 1).toBe(1);
+  });
+
+  it("queued bubbles survive a reload that does not contain them yet", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "second");
+    });
+    emitQueue({ queueEvent: "queued", message: "second", position: 1 });
+    await render(
+      <Transcript
+        conversationId="c_1"
+        messages={[{ role: "user", content: "first" }]}
+        liveTurn={useChatStore.getState().turns["c_1"]}
+      />,
+    );
+    // userIndex is still unknown (never started) — the bubble must stay
+    expect(useChatStore.getState().pending["c_1"]).toHaveLength(1);
+    expect(container.textContent).toContain("second");
+    expect(container.textContent).toContain("queued");
+  });
+
+  it("stop() restores cleared queue texts as a composer draft", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "typed text");
+    });
+    emitQueue({ queueEvent: "queued", message: "typed text", position: 1 });
+    emitQueue({
+      queueEvent: "cleared",
+      messages: ["typed text"],
+    });
+    expect(useChatStore.getState().pending["c_1"]).toHaveLength(0);
+    expect(useChatStore.getState().drafts["c_1"]).toBe("typed text");
+    await render(
+      <Composer
+        root="/tmp/proj"
+        conversationId="c_1"
+        onTurnStarted={() => {}}
+      />,
+    );
+    expect(
+      (container.querySelector("textarea") as HTMLTextAreaElement).value,
+    ).toBe("typed text");
+    expect(useChatStore.getState().drafts["c_1"]).toBeNull();
+  });
+});
+
+describe("activity indicator (thinking state)", () => {
+  it("shows thinking dots and the activity line before the first output", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "hi");
+    });
+    await render(<LiveTurnView turn={useChatStore.getState().turns["c_1"]!} />);
+    expect(container.querySelector('[role="status"]')).toBeTruthy();
+    expect(container.textContent).toContain("thinking");
+  });
+
+  it("switches to writing while text streams", async () => {
+    emit({ type: "message_delta", text: "partial answer" });
+    await render(<LiveTurnView turn={useChatStore.getState().turns["c_1"]!} />);
+    expect(container.textContent).toContain("writing");
+    expect(container.textContent).toContain("partial answer");
+  });
+});
+
+describe("historyCoversAssistant (positional coverage)", () => {
+  it("requires a non-empty assistant reply AFTER the run's user message", () => {
+    const history = [
+      { role: "user" as const, content: "one" },
+      { role: "assistant" as const, content: "answer one" },
+      { role: "user" as const, content: "two" },
+    ];
+    // the second run streams: its user message persisted at run START, so
+    // the history already contains it — that alone must NOT cover the turn
+    expect(historyCoversAssistant(history, 1)).toBe(false);
+    const finished = [
+      ...history,
+      { role: "assistant" as const, content: "answer two" },
+    ];
+    expect(historyCoversAssistant(finished, 1)).toBe(true);
+    // the first run stays covered (its reply is in the history)
+    expect(historyCoversAssistant(finished, 0)).toBe(true);
+    // an empty assistant turn does not count
+    expect(
+      historyCoversAssistant(
+        [...history, { role: "assistant" as const, content: null }],
+        1,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("empty response (bug: silent no-reply turns)", () => {
+  it("surfaces an actionable error view with a retryable code", async () => {
+    await act(async () => {
+      await useChatStore.getState().send("/tmp/proj", "c_1", "i dont know");
+    });
+    emit({ type: "done", reason: "final", steps: 0, usage: {} });
+    // main reports the empty result right after done (non-fatal)
+    emit(
+      {
+        type: "error",
+        fatal: false,
+        message: "The model returned an empty response.",
+      },
+      { code: "empty_response" },
+    );
+    const turn = useChatStore.getState().turns["c_1"]!;
+    expect(turn.running).toBe(false);
+    expect(turn.errorCode).toBe("empty_response");
+    await render(<LiveTurnView turn={turn} />);
+    expect(container.querySelector("[role=alert]")?.textContent).toContain(
+      "empty response",
+    );
   });
 });

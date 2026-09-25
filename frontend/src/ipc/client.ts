@@ -8,6 +8,7 @@ import type {
   ConversationSummary,
   DiffResponse,
   EventMap,
+  GatewayHealthResponse,
   IpcResult,
   LoginRequest,
   PrivacyInfo,
@@ -184,6 +185,14 @@ export const api = {
       requestsPerMinute: number;
       periodEnd?: string;
     }>,
+  testGateway: () =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.gatewayTest),
+    ) as Promise<GatewayHealthResponse>,
+  openUserData: () =>
+    unwrap(
+      bridge().invoke(INVOKE_CHANNELS.appOpenUserData),
+    ) as Promise<boolean>,
   subscribe: (<C extends EventChannel>(
     channel: C,
     listener: (payload: EventMap[C]) => void,
@@ -203,4 +212,5 @@ export type {
   DiffResponse,
   TierCatalog,
   UsageInfo,
+  GatewayHealthResponse,
 };

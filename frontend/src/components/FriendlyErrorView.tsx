@@ -44,6 +44,8 @@ export function FriendlyErrorView({ turn }: { turn: LiveTurn }) {
         return "The model provider failed";
       case "timeout":
         return "The model request timed out";
+      case "empty_response":
+        return "The model returned an empty response";
       default:
         return turn.error ?? "Something went wrong";
     }
@@ -69,6 +71,12 @@ export function FriendlyErrorView({ turn }: { turn: LiveTurn }) {
       </div>
       {turn.errorCode !== "rate_limited" && turn.error && (
         <div className="mt-0.5 opacity-80">{turn.error}</div>
+      )}
+      {turn.errorCode === "empty_response" && (
+        <div className="mt-1 opacity-80">
+          The request finished without any content (the upstream model sent
+          nothing). Use Retry below the input, or try a different tier.
+        </div>
       )}
       {turn.errorCode === "quota_exceeded" && (
         <div className="mt-1 opacity-80">

@@ -20,6 +20,7 @@ import {
   ToolRegistry,
   type AgentEvent,
   type ApprovalHandler,
+  type DoneReason,
   type PermissionDecision,
   type PermissionRequest,
   type PermissionRule,
@@ -40,7 +41,11 @@ import {
 } from "@evren/local-runner";
 import type { BrowserWindow } from "electron";
 import { EVENT_CHANNELS } from "@shared/channels";
-import { CHAT_ROOT_ID, type ChatErrorInfo } from "@shared/ipc";
+import {
+  CHAT_ROOT_ID,
+  type ChatErrorInfo,
+  type ChatQueueEventPayload,
+} from "@shared/ipc";
 import type { GatewaySession } from "./gateway";
 import type { ProjectManager } from "./projects";
 import type { SettingsStore } from "./settings";
@@ -114,8 +119,16 @@ function safeParse(raw: string): unknown {
   }
 }
 
+/** A user message waiting for its turn behind the active run. */
+interface QueuedMessage {
+  message: string;
+  model?: string;
+}
+
 export class AgentRuntime {
   private readonly runs = new Map<string, Run>();
+  /** Messages parked behind the active run, per conversation (FIFO). */
+  private readonly queues = new Map<string, QueuedMessage[]>();
 
   constructor(private readonly deps: AgentRuntimeDeps) {}
 
@@ -124,9 +137,11 @@ export class AgentRuntime {
   }
 
   /**
-   * Start a run. Errors are reported through chat:error events (and the
-   * returned promise never rejects for run-level failures) so the renderer
-   * can always rely on the event stream.
+   * Send a user message. When a run is already active for the conversation
+   * the message is QUEUED instead of bounced: the renderer shows it as a
+   * queued bubble and it runs as soon as the current run finishes. Errors
+   * are reported through chat:event pushes; the returned promise never
+   * rejects for run-level failures.
    */
   async send(
     root: string,
@@ -135,13 +150,29 @@ export class AgentRuntime {
     model?: string,
   ): Promise<void> {
     if (this.runs.has(conversationId)) {
-      this.emit(conversationId, {
-        type: "error",
-        fatal: true,
-        message: "This conversation is already running.",
+      const queue = this.queues.get(conversationId) ?? [];
+      queue.push({ message, model });
+      this.queues.set(conversationId, queue);
+      this.emitQueue(conversationId, {
+        queueEvent: "queued",
+        message,
+        position: queue.length,
       });
       return;
     }
+    await this.pump(root, conversationId, { message, model });
+  }
+
+  /**
+   * Execute messages one at a time (one run per conversation at a time —
+   * same invariant as before) until the queue is dry. Messages that arrive
+   * while a turn is running are picked up from the queue map between turns.
+   */
+  private async pump(
+    root: string,
+    conversationId: string,
+    first: QueuedMessage,
+  ): Promise<void> {
     const run: Run = {
       conversationId,
       root,
@@ -151,15 +182,85 @@ export class AgentRuntime {
     };
     this.runs.set(conversationId, run);
     try {
-      await this.runTurn(run, conversationId, message, model);
+      let item: QueuedMessage | undefined = first;
+      while (item && !run.controller.signal.aborted) {
+        let result: { empty: boolean } = { empty: false };
+        try {
+          result = await this.runTurn(
+            run,
+            conversationId,
+            item.message,
+            item.model,
+          );
+        } catch (err) {
+          // construction errors (unknown root, store failures) must reach
+          // the renderer too — they used to vanish as unhandled rejections
+          this.emit(conversationId, {
+            type: "error",
+            fatal: true,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        // one automatic retry for empty final responses (opt-in setting)
+        if (
+          result.empty &&
+          !run.controller.signal.aborted &&
+          this.deps.settings.load().autoRetryEmptyResponses
+        ) {
+          try {
+            result = await this.runTurn(
+              run,
+              conversationId,
+              item.message,
+              item.model,
+              { retry: true },
+            );
+          } catch {
+            result = { empty: false };
+          }
+        }
+        if (result.empty) {
+          this.emit(
+            conversationId,
+            {
+              type: "error",
+              fatal: false,
+              message: "The model returned an empty response.",
+            },
+            { code: "empty_response" },
+          );
+        }
+        item = this.queues.get(conversationId)?.shift();
+      }
     } finally {
       // deny any approval that never got answered
       run.pending?.resolve({ effect: "deny", note: "run ended" });
       this.runs.delete(conversationId);
+      // messages that raced the drain (queued between the last shift and
+      // the map delete) must not be stranded
+      if (!run.controller.signal.aborted) {
+        const next = this.queues.get(conversationId)?.shift();
+        if (next) {
+          void this.pump(root, conversationId, next);
+        }
+      }
     }
   }
 
+  /**
+   * Abort the active run AND drop every queued message. The queued texts
+   * are pushed back to the renderer (queueEvent 'cleared') so the composer
+   * can restore them — nothing the user typed is lost.
+   */
   stop(conversationId: string): boolean {
+    const queue = this.queues.get(conversationId);
+    if (queue && queue.length > 0) {
+      this.queues.delete(conversationId);
+      this.emitQueue(conversationId, {
+        queueEvent: "cleared",
+        messages: queue.map((q) => q.message),
+      });
+    }
     const run = this.runs.get(conversationId);
     if (!run) return false;
     run.controller.abort();
@@ -222,12 +323,27 @@ export class AgentRuntime {
     }
   }
 
+  /** Push a run-queue lifecycle event (queued / started / cleared). */
+  private emitQueue(
+    conversationId: string,
+    payload: Omit<ChatQueueEventPayload, "conversationId">,
+  ): void {
+    const win = this.deps.win();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(EVENT_CHANNELS.chatEvent, {
+        conversationId,
+        ...payload,
+      });
+    }
+  }
+
   private async runTurn(
     run: Run,
     conversationId: string,
     message: string,
     model?: string,
-  ): Promise<void> {
+    opts: { retry?: boolean } = {},
+  ): Promise<{ empty: boolean }> {
     const { projects, settings, session } = this.deps;
     const workspace = projects.requireKnownRoot(run.root);
     const opened = await projects.store(run.root);
@@ -238,7 +354,7 @@ export class AgentRuntime {
         fatal: true,
         message: "Conversation not found.",
       });
-      return;
+      return { empty: false };
     }
 
     const tier = model ?? loaded.summary.model ?? settings.load().defaultTier;
@@ -263,11 +379,15 @@ export class AgentRuntime {
     );
 
     const mapCache = chat ? null : new ProjectMapCache(opened.dbDir);
-    let projectMap = chat ? null : mapCache?.load() ?? buildProjectMap(workspace.root);
+    let projectMap = chat
+      ? null
+      : (mapCache?.load() ?? buildProjectMap(workspace.root));
     if (mapCache && projectMap) {
       mapCache.save(projectMap);
     }
-    const projectMapText = projectMap ? renderProjectMap(projectMap).text : null;
+    const projectMapText = projectMap
+      ? renderProjectMap(projectMap).text
+      : null;
 
     const systemPrompt = chat
       ? CHAT_SYSTEM_PROMPT
@@ -326,15 +446,48 @@ export class AgentRuntime {
       );
     }
 
+    // Persist the user message IMMEDIATELY at run start (not at the end):
+    // the renderer shows it optimistically and drops the optimistic bubble
+    // once the reloaded history contains it, and a crash mid-run can no
+    // longer lose the sent message. A retry reuses the already-persisted
+    // message instead of appending it twice.
     const history = loaded.messages.filter((m) => m.role !== "system");
-    let persisted = loaded.messages.length;
+    let persisted: number;
+    let userIndex: number;
+    if (opts.retry) {
+      // the first attempt already appended the user message (and possibly
+      // an empty assistant turn): strip them so the retry sends exactly
+      // the same conversation to the model again
+      while (
+        history.length > 0 &&
+        ((history[history.length - 1]!.role === "user" &&
+          history[history.length - 1]!.content === message) ||
+          (history[history.length - 1]!.role === "assistant" &&
+            !history[history.length - 1]!.content))
+      ) {
+        history.pop();
+      }
+      persisted = history.length + 1; // +1: the system prompt Agent prepends
+      userIndex = loaded.messages.filter((m) => m.role === "user").length - 1;
+    } else {
+      userIndex = loaded.messages.filter((m) => m.role === "user").length;
+      await opened.store.appendMessages(conversationId, [
+        { role: "user", content: message },
+      ]);
+      persisted = history.length + 1; // +1: system prompt (see above)
+    }
+    this.emitQueue(conversationId, {
+      queueEvent: "started",
+      message,
+      userIndex,
+    });
     const agent = new Agent({
       provider,
       registry,
       systemPrompt,
       permissions: permissionEngine,
       contextManager: new ContextManager(),
-      maxSteps: 30,
+      maxSteps: settings.load().maxSteps,
       history,
     });
 
@@ -363,12 +516,21 @@ export class AgentRuntime {
         );
       }
     };
+    let producedContent = false;
+    let doneReason: DoneReason | null = null;
     try {
       for await (const ev of agent.run(message, run.controller.signal)) {
         if (ev.type === "approval_request") {
           run.expectedApprovalId = ev.id;
         }
+        if (
+          (ev.type === "message_delta" && ev.text.trim().length > 0) ||
+          ev.type === "tool_call"
+        ) {
+          producedContent = true;
+        }
         if (ev.type === "done") {
+          doneReason = ev.reason;
           // Persist BEFORE the renderer sees 'done': the renderer reloads
           // the conversation on the running->false transition, and that
           // reload must observe the persisted final messages (otherwise
@@ -378,7 +540,12 @@ export class AgentRuntime {
         this.emit(conversationId, ev);
         if (ev.type === "file_changed" && projectMap && mapCache) {
           const kind = ev.change === "deleted" ? "deleted" : "upsert";
-          projectMap = updateMapEntry(projectMap, ev.path, kind, workspace.root);
+          projectMap = updateMapEntry(
+            projectMap,
+            ev.path,
+            kind,
+            workspace.root,
+          );
           mapCache.save(projectMap);
         }
         if (ev.type === "tool_call") {
@@ -406,7 +573,7 @@ export class AgentRuntime {
           { type: "error", fatal: true, message: err.message },
           { code: "reauth_required" },
         );
-        return;
+        return { empty: false };
       }
       if (err instanceof ProviderError) {
         const info = providerErrorInfo(err);
@@ -416,14 +583,25 @@ export class AgentRuntime {
           { type: "error", fatal: true, message },
           info,
         );
-        return;
+        return { empty: false };
       }
       this.emit(conversationId, {
         type: "error",
         fatal: true,
         message: err instanceof Error ? err.message : String(err),
       });
+      return { empty: false };
     }
+    // An empty FINAL response (no text, no tool calls, no error) used to
+    // end silently: the user message was persisted with no visible reply
+    // and no explanation. Report it so the pump can retry / the UI can
+    // offer one.
+    return {
+      empty:
+        doneReason === "final" &&
+        !producedContent &&
+        !run.controller.signal.aborted,
+    };
   }
 }
 

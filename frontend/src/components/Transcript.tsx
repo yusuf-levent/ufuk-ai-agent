@@ -5,11 +5,16 @@
  * pending approval bar and per-turn usage. Long outputs are truncated with
  * a reveal toggle so the DOM never freezes.
  */
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { ChatMessage } from "@shared/ipc";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { FriendlyErrorView } from "./FriendlyErrorView";
-import { useChatStore, type LiveTurn, type ToolStep } from "../stores/chat";
+import {
+  useChatStore,
+  type LiveTurn,
+  type PendingMessage,
+  type ToolStep,
+} from "../stores/chat";
 
 const MAX_INLINE = 6_000;
 
@@ -68,6 +73,90 @@ function CappedMarkdown({ text }: { text: string }) {
 }
 
 const MAX_MARKDOWN = 12_000;
+
+/**
+ * Optimistic user bubble: a message the renderer sent. 'running' looks like
+ * a normal sent message; 'queued' (sent while a run was active) renders
+ * dimmed with a badge — it goes out as soon as the current reply finishes.
+ */
+export function PendingBubble({ entry }: { entry: PendingMessage }) {
+  if (entry.state === "queued") {
+    return (
+      <div
+        className="self-end rounded-xl bg-sky-600/40 px-4 py-2 text-sm text-sky-100/80"
+        title="Will send automatically once the current reply finishes"
+      >
+        <Reveal text={entry.text} />
+        <div className="mt-0.5 text-[10px] tracking-wide text-sky-300/80">
+          ⏳ queued
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="self-end rounded-xl bg-sky-600/90 px-4 py-2 text-sm text-white">
+      <Reveal text={entry.text} />
+    </div>
+  );
+}
+
+/** Three pulsing dots: the agent is thinking (no output yet). */
+function ThinkingDots() {
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      role="status"
+      aria-label="thinking"
+    >
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400"
+          style={{ animationDelay: `${i * 200}ms` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Live elapsed-seconds counter (activity indicator). */
+export function Elapsed({ since }: { since: number | null }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (since === null) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1_000);
+    return () => clearInterval(timer);
+  }, [since]);
+  if (since === null) return null;
+  const secs = Math.max(0, Math.floor((Date.now() - since) / 1_000));
+  return <span className="tabular-nums text-neutral-500">{secs}s</span>;
+}
+
+/**
+ * Activity line shown while the run is active: thinking dots before the
+ * first output, a writing/step status afterwards, plus elapsed time and an
+ * approval hint when the run is blocked on a user decision.
+ */
+function ActivityLine({ turn }: { turn: LiveTurn }) {
+  const working = turn.text || turn.steps.length > 0;
+  return (
+    <div className="flex items-center gap-2 text-xs text-sky-400">
+      {!working && <ThinkingDots />}
+      <span aria-label="activity">
+        {!working
+          ? "thinking"
+          : turn.steps.length > 0
+            ? `working — step ${Math.max(turn.stepCount, turn.steps.length)}`
+            : "writing"}
+        …
+      </span>
+      <Elapsed since={turn.startedAt} />
+      {turn.approval && (
+        <span className="text-amber-400">waiting for your approval</span>
+      )}
+    </div>
+  );
+}
 
 function Reasoning({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -204,6 +293,7 @@ export const LiveTurnView = memo(function LiveTurnView({
   if (!hasContent) return null;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3">
+      {turn.running && <ActivityLine turn={turn} />}
       <Reasoning text={turn.reasoning} />
       {showOutput && turn.steps.length > 0 && (
         <div className="space-y-1">
@@ -214,7 +304,7 @@ export const LiveTurnView = memo(function LiveTurnView({
       )}
       {showOutput && turn.text && (
         <div className="self-start text-sm text-neutral-100">
-          <CappedMarkdown text={turn.text} />
+          <CappedMarkdown text={turn.running ? `${turn.text} ▍` : turn.text} />
         </div>
       )}
       <UsageBar turn={turn} />
@@ -243,6 +333,34 @@ export function historyCoversRun(
   return false;
 }
 
+/**
+ * Positional coverage for the live assistant preview: true when the
+ * persisted history already contains a non-empty assistant message AFTER
+ * the run's user message (identified by its 0-based index among the user
+ * messages). The user message itself persists at run START, so a plain
+ * "last user message" text match would false-positive while a queued
+ * follow-up run is streaming — position cannot.
+ */
+export function historyCoversAssistant(
+  messages: ChatMessage[],
+  userIndex: number,
+): boolean {
+  let seen = 0;
+  let after = false;
+  for (const m of messages) {
+    if (m.role === "user") {
+      if (seen === userIndex) after = true;
+      seen += 1;
+      continue;
+    }
+    if (after && m.role === "assistant" && m.content) return true;
+  }
+  return false;
+}
+
+/** Stable empty list: zustand selectors must return cached references. */
+const NO_PENDING: PendingMessage[] = [];
+
 export const Transcript = memo(function Transcript({
   messages,
   liveTurn,
@@ -257,9 +375,22 @@ export const Transcript = memo(function Transcript({
   const runUserText = useChatStore((s) =>
     conversationId ? s.lastMessage[conversationId] : undefined,
   );
+  // optimistic bubbles + the covered-dropper for this conversation
+  const pending = useChatStore((s) =>
+    conversationId ? (s.pending[conversationId] ?? NO_PENDING) : NO_PENDING,
+  );
+  const consumeCovered = useChatStore((s) => s.consumeCovered);
+  useEffect(() => {
+    if (conversationId) consumeCovered(conversationId, messages);
+  }, [conversationId, messages, consumeCovered]);
+
   const covered =
-    liveTurn && runUserText ? historyCoversRun(messages, runUserText) : false;
-  const empty = messages.length === 0 && !liveTurn;
+    liveTurn && liveTurn.userIndex !== null
+      ? historyCoversAssistant(messages, liveTurn.userIndex)
+      : liveTurn && runUserText
+        ? historyCoversRun(messages, runUserText)
+        : false;
+  const empty = messages.length === 0 && !liveTurn && pending.length === 0;
   if (empty) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-neutral-600">
@@ -291,7 +422,19 @@ export const Transcript = memo(function Transcript({
               </div>
             );
           })}
+        {/* the active run's user message, before its streaming output */}
+        {pending
+          .filter((p) => p.state === "running")
+          .map((p) => (
+            <PendingBubble key={p.id} entry={p} />
+          ))}
         {liveTurn && <LiveTurnView turn={liveTurn} covered={covered} />}
+        {/* messages queued behind the active run, below the streaming reply */}
+        {pending
+          .filter((p) => p.state === "queued")
+          .map((p) => (
+            <PendingBubble key={p.id} entry={p} />
+          ))}
       </div>
     </div>
   );

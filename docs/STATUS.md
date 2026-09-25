@@ -11,7 +11,7 @@ tiers/credits/errors, hardening, E2E + packaging + launch).
 |---|---|---|
 | `evren-agent` | TypeScript, pnpm monorepo (agent-core, local-runner, apps/cli) | **237 passed** (agent-core 76, local-runner 161) |
 | `evren-backend` | Python 3.12 / FastAPI, Postgres 17 + Redis 7 (Docker) | **115 passed** |
-| `frontend` | Electron 44 + React 18 + TS strict | **128 unit + 12 e2e passed** |
+| `frontend` | Electron 44 + React 18 + TS strict | **196 unit + 12 e2e passed** (UX rework 2026-09-25: optimistic message bubbles, per-conversation run queue with queue events, activity/thinking indicator, empty-response detection + optional auto-retry, tabbed advanced settings incl. enterToSend/maxSteps/gateway health check) |
 
 Tooling: Node 24.11.1, pnpm 12.4.2, Python 3.12.7, Docker 29.6.2. The
 backend stack (postgres :5433, redis :6380, api :8000) is running on this
