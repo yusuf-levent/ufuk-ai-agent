@@ -51,10 +51,11 @@ Kullanici indirir: Ufuk-Setup-0.1.0.exe (VS Code fork, adi Ufuk)
 | 2 | `vscode/src/vs/platform/agentHost/node/copilot/copilotAgent.ts` (veya yeni `evrenAgent.ts`) | LLM istegini `POST https://api.ufuk.ai/v1/chat/completions` SSE'ye yonlendir, `Authorization: ******` JWT ekle | Agent loop'un LLM'i Copilot degil, senin backend'in olsun. ~50 satir. |
 | 3 | `vscode/src/vs/workbench/contrib/chat/browser/chatQuotaNotification.ts` | `402 quota_exceeded` → "Kredin bitti, yukselt" + `429` → "Biraz bekle" | Kredi bitince kullanici anlasin. ~30 satir. |
 | 4 | `vscode/src/vs/workbench/contrib/chat/common/chatModes.ts` + login view | Model picker `fast/pro/strong` alias'lari, login ekrani (`POST /auth/login` → JWT → `secretStorage`) | Kullanici giris yapsin, model secsin. ~100 satir. |
+| 5 | `vscode/src/vs/workbench/browser/parts/statusbar/statusbarPart.ts` + `chat/browser/chatStatus.ts` (veya yeni `ufukQuotaStatus.ts`) | **Limit/abonelik UI:** Status bar'da "Pro — 42.3/100 kredi — 12 gun kaldi", chat header'da kredi bar, `GET /usage` + `GET /me` + `GET /plans` ile guncelleme, `402` → "Yukselt" butonu Stripe portal'a | Kullanici limitini ve aboneligini her an gorsun. ~60 satir. |
 
 Baska hicbir cekirdek dosyaya dokunulmayacak. `terminal`, `debug`, `scm` gibi gereksiz paneller `when: false` ile gizlenecek (dosya silme yok).
 
-Toplam: **~200 satir degisiklik**. VS Code 1.5 milyon satir, biz 200 satir degistiriyoruz.
+Toplam: **~260 satir degisiklik**. VS Code 1.5 milyon satir, biz 260 satir degistiriyoruz.
 
 ---
 
@@ -89,11 +90,16 @@ Toplam: **~200 satir degisiklik**. VS Code 1.5 milyon satir, biz 200 satir degis
 - `builtInExtensions` icinden `cpp`, `go`, `java`, `python` gibi dil eklentilerini cikar.
 - Kabul: Ufuk acilinca sadece Explorer + Editor + Chat gorunur.
 
-### Faz 4 — MCP + odeme UI (1 hafta)
+### Faz 4 — MCP + odeme + limit/abonelik UI (1 hafta)
 
 - `mcpServersView.ts` filtre: sadece onayli MCP'ler.
-- Stripe webhook → plan atanir, chat'te "Plan: Pro — 12.3/100 kredi" status bar, `402` sonrasi "Yukselt" butonu Stripe portal'a gider.
-- Kabul: Test kartiyla odeme → plan atanir, kredi gostergesi guncellenir.
+- **Limit/abonelik UI (dahil):**
+  - Status bar (sag alt): `Pro — 42.3/100 kredi — 12 gun kaldi` — `GET /usage` (kullanilan/kalan kredi) + `GET /me` (plan, period_end) her chat sonrasi ve 30sn'de bir guncelle. Dosya: `statusbarPart.ts` veya yeni `ufukQuotaStatus.ts` (~40 satir).
+  - Chat header kredi bari: ince progress bar (yesil→sari→kirmizi), %80'de sari uyari, %100'de `402` → "Kredin bitti — Yukselt" butonu `GET /billing/portal` (Stripe Customer Portal) linkine gider.
+  - Ayarlar / hesap ekrani: `GET /plans` ile plan listesi (Free/Pro/Ultra, fiyat, kredi limiti), mevcut plan vurgulu, "Plan degistir" → Stripe Checkout/Portal. `GET /usage` gecmisi (gunluk kullanim).
+  - `402 quota_exceeded` ve `429 rate_limited` → `chatQuotaNotification.ts` toast + status bar kirmizi.
+- Stripe webhook → plan atanir, UI otomatik guncellenir.
+- Kabul: Test kartiyla odeme → plan atanir, status bar + kredi bari + hesap ekrani guncellenir, 402 sonrasi "Yukselt" portal'a gider.
 
 ### Faz 5 — Build + release (1 hafta)
 
@@ -122,9 +128,9 @@ Toplam: **~200 satir degisiklik**. VS Code 1.5 milyon satir, biz 200 satir degis
 
 1. VS Code'u fork'la, `product.json`'da adini Ufuk yap.
 2. Agent loop'un LLM istegini Copilot'tan kes, kendi backend'ine (`/v1/chat/completions` SSE) bagla — 50 satir.
-3. Login + kredi gostergesi + quota uyari ekle — 130 satir.
+3. Login + limit/abonelik UI (status bar "Pro — 42/100 kredi — 12 gun", kredi bari, hesap ekrani, 402→Yukselt) + quota uyari ekle — 190 satir.
 4. Gereksiz panelleri gizle, installer al, sat.
 
-Eklenti yok. evren-agent yok. Sifirdan agent yazmak yok. Toplam ~200 satir degisiklikle VS Code'un hazir agent motorunu kendi abonelik sisteminle satiyorsun.
+Eklenti yok. evren-agent yok. Sifirdan agent yazmak yok. Toplam ~260 satir degisiklikle VS Code'un hazir agent motorunu kendi abonelik sisteminle satiyorsun.
 
 *Kod degisikligi icermez, sadece plan.*
