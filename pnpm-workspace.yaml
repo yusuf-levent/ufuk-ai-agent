@@ -1,0 +1,17 @@
+# Root workspace: frontend imports @evren/agent-core and @evren/local-runner
+# as workspace packages (single source of truth, no forked logic).
+#
+# NOTE: evren-agent/ has its OWN pnpm-workspace.yaml — pnpm resolves the
+# nearest workspace file, so commands run inside evren-agent/ are unaffected.
+# Frontend installs must be run from frontend/ (or the repo root).
+packages:
+  - evren-agent/packages/*
+  - frontend
+
+# pnpm 12 build-script allowlist (native modules + tooling).
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  electron: true
+  electron-winstaller: true
+
