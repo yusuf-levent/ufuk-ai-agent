@@ -20,6 +20,7 @@ class PlanResponse(BaseModel):
     requests_per_minute: int
     allowed_tier_aliases: list[str]
     is_default: bool
+    stripe_price_id: str | None = None
 
 
 class PlanCreate(BaseModel):
@@ -29,6 +30,7 @@ class PlanCreate(BaseModel):
     requests_per_minute: int = Field(gt=0)
     allowed_tier_aliases: list[str] = Field(min_length=1)
     is_default: bool = False
+    stripe_price_id: str | None = Field(default=None, max_length=100)
 
 
 class PlanUpdate(BaseModel):
@@ -38,6 +40,7 @@ class PlanUpdate(BaseModel):
     requests_per_minute: int | None = Field(default=None, gt=0)
     allowed_tier_aliases: list[str] | None = Field(default=None, min_length=1)
     is_default: bool | None = None
+    stripe_price_id: str | None = Field(default=None, max_length=100)
 
 
 class TierResponse(BaseModel):

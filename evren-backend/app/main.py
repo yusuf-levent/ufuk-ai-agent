@@ -14,7 +14,7 @@ from app.db import Database
 from app.errors import ApiError, api_error_handler, error_body
 from app.logging import configure_logging
 from app.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
-from app.routers import admin, auth, gateway, health, me, plans, privacy, usage
+from app.routers import admin, auth, billing, gateway, health, me, plans, privacy, usage
 from app.services.circuit_breaker import CircuitBreaker
 from app.services.email import ConsoleEmailSender
 from app.services.upstream import UpstreamClient
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me.router)
     app.include_router(plans.router)
     app.include_router(admin.router)
+    app.include_router(billing.router)
     app.include_router(gateway.router)
     app.include_router(usage.router)
     app.include_router(privacy.router)

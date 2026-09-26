@@ -71,6 +71,14 @@ def redact_processor(logger: WrappedLogger, method_name: str, event_dict: EventD
 
 
 def configure_logging(settings: Settings) -> None:
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk  # type: ignore[import-not-found]
+
+            sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment)
+        except Exception:
+            pass
+
     renderer: Processor
     if settings.environment == "dev":
         renderer = structlog.dev.ConsoleRenderer()

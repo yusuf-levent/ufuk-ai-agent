@@ -300,6 +300,22 @@ async def chat_completions(
             code="model_not_allowed",
         )
 
+    # Global rate limit — protects the single OpenRouter key
+    global_retry = await check_rate_limit(
+        redis,
+        key="global:rpm",
+        limit=request.app.state.settings.global_rate_limit_per_minute,
+        window_seconds=60,
+    )
+    if global_retry is not None:
+        raise ApiError(
+            status_code=429,
+            message="Service is busy, please retry shortly",
+            type="rate_limit_error",
+            code="rate_limited",
+            headers={"Retry-After": str(global_retry)},
+        )
+
     retry_after = await check_rate_limit(
         redis,
         key=f"rpm:{user.id}:{active.period_key}",

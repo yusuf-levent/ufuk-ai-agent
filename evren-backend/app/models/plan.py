@@ -17,3 +17,4 @@ class Plan(Base, IdMixin, TimestampMixin):
     requests_per_minute: Mapped[int] = mapped_column(Integer)
     allowed_tier_aliases: Mapped[list[str]] = mapped_column(ARRAY(String(50)), default=list)
     is_default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    stripe_price_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)

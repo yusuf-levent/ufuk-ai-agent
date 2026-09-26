@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     admin_emails: Annotated[list[str], NoDecode] = []
     environment: Literal["dev", "prod"] = "dev"
     request_max_body_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    global_rate_limit_per_minute: int = Field(default=60, gt=0)
+    stripe_webhook_secret: SecretStr | None = None
+    stripe_secret_key: SecretStr | None = None
+    sentry_dsn: str | None = None
 
     @field_validator("allowed_origins", "admin_emails", mode="before")
     @classmethod
