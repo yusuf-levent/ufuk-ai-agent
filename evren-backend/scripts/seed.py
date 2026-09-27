@@ -25,37 +25,86 @@ from sqlalchemy import select
 
 PROVIDER = os.environ.get("SEED_PROVIDER", "evren-llmapi")
 
+# Upstream model ids verified against GET /v1/models on evren-llmapi
+# (2026-09-27). All six are chat-task models with tools=true.
+# price_note is manually curated (never auto-derived): it reflects this
+# gateway's credit pricing, not upstream USD prices.
 DEFAULT_TIERS = {
     "fast": {
-        "display_name": "Fast",
+        "display_name": "DeepSeek V4 Flash",
         "upstream_model_id": os.environ.get("SEED_FAST_MODEL", "deepseek-v4-flash"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.5"),
         "output_credits_per_1k_tokens": Decimal("1.0"),
         "max_output_tokens": 8192,
         "context_window": 128000,
+        "price_note": "En ucuz — kısa sorular ve hızlı görevler için",
+        "speed_hint": 5,
+        "quality_hint": 2,
+    },
+    "fast2": {
+        "display_name": "DeepSeek V4.1 Flash",
+        "upstream_model_id": os.environ.get("SEED_FAST2_MODEL", "deepseek-v4.1-flash"),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("0.6"),
+        "output_credits_per_1k_tokens": Decimal("1.2"),
+        "max_output_tokens": 8192,
+        "context_window": 128000,
+        "price_note": "Ucuz ve hızlı, görsel girdi destekli",
+        "speed_hint": 5,
+        "quality_hint": 3,
     },
     "balanced": {
-        "display_name": "Balanced",
+        "display_name": "Gemma 4 31B",
         "upstream_model_id": os.environ.get("SEED_BALANCED_MODEL", "gemma-4-31b"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("1.5"),
         "output_credits_per_1k_tokens": Decimal("3.0"),
         "max_output_tokens": 8192,
         "context_window": 128000,
+        "price_note": "Dengeli — günlük kullanım için iyi seçim",
+        "speed_hint": 4,
+        "quality_hint": 3,
+    },
+    "balanced2": {
+        "display_name": "Qwen3.8 Flash Next",
+        "upstream_model_id": os.environ.get("SEED_BALANCED2_MODEL", "qwen3.8-flash-next"),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("1.8"),
+        "output_credits_per_1k_tokens": Decimal("3.6"),
+        "max_output_tokens": 8192,
+        "context_window": 128000,
+        "price_note": "Dengeli, görsel girdi destekli",
+        "speed_hint": 4,
+        "quality_hint": 3,
     },
     "strong": {
-        "display_name": "Strong",
+        "display_name": "GLM 5.3",
         "upstream_model_id": os.environ.get("SEED_STRONG_MODEL", "glm-5.3"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("4.0"),
         "output_credits_per_1k_tokens": Decimal("8.0"),
         "max_output_tokens": 16384,
         "context_window": 200000,
+        "price_note": "En güçlü — karmaşık görevler, daha pahalı",
+        "speed_hint": 2,
+        "quality_hint": 5,
+    },
+    "strong2": {
+        "display_name": "MiMo v2.6 Pro",
+        "upstream_model_id": os.environ.get("SEED_STRONG2_MODEL", "mimo-v2.6-pro"),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("4.5"),
+        "output_credits_per_1k_tokens": Decimal("9.0"),
+        "max_output_tokens": 16384,
+        "context_window": 200000,
+        "price_note": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
+        "speed_hint": 2,
+        "quality_hint": 4,
     },
 }
 
-ALL_TIERS = ["fast", "balanced", "strong"]
+ALL_TIERS = ["fast", "fast2", "balanced", "balanced2", "strong", "strong2"]
 
 DEFAULT_PLANS = {
     "free": {

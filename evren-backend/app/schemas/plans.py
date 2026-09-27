@@ -55,6 +55,9 @@ class TierResponse(BaseModel):
     output_credits_per_1k_tokens: Decimal
     max_output_tokens: int
     context_window: int
+    price_note: str | None = None
+    speed_hint: int | None = None
+    quality_hint: int | None = None
     enabled: bool
 
 
@@ -67,6 +70,9 @@ class TierCreate(BaseModel):
     output_credits_per_1k_tokens: Decimal = Field(ge=0)
     max_output_tokens: int = Field(gt=0)
     context_window: int = Field(gt=0)
+    price_note: str | None = Field(default=None, max_length=200)
+    speed_hint: int | None = Field(default=None, ge=1, le=5)
+    quality_hint: int | None = Field(default=None, ge=1, le=5)
     enabled: bool = True
 
 
@@ -78,6 +84,9 @@ class TierUpdate(BaseModel):
     output_credits_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)
+    price_note: str | None = Field(default=None, max_length=200)
+    speed_hint: int | None = Field(default=None, ge=1, le=5)
+    quality_hint: int | None = Field(default=None, ge=1, le=5)
     enabled: bool | None = None
 
 

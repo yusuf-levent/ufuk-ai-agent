@@ -19,4 +19,11 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     output_credits_per_1k_tokens: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     context_window: Mapped[int] = mapped_column(Integer)
+    # Human-readable price/performance note shown next to the model in the
+    # picker (e.g. "Ucuz ve hızlı"). Manually curated via seed/admin — never
+    # derived automatically from upstream pricing.
+    price_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Simple 1-5 ordering hints for picker labels (higher = faster/better).
+    speed_hint: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality_hint: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))

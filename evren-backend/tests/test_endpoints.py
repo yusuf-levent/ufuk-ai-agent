@@ -55,6 +55,46 @@ async def test_v1_models_lists_plan_tiers_with_details(
     assert fast["details"]["upstream_model"] == "dev-model-fast"
     assert fast["details"]["display_name"] == "Fast"
     assert fast["details"]["context_window"] == 128000
+    # Picker fields: absent when the tier row carries no curated hints.
+    assert "price_note" in fast["details"]
+    assert "speed_hint" in fast["details"]
+    assert "quality_hint" in fast["details"]
+    assert fast["details"]["price_note"] is None
+    assert fast["details"]["speed_hint"] is None
+    assert fast["details"]["quality_hint"] is None
+
+
+async def test_v1_models_returns_curated_picker_fields(
+    client: AsyncClient, app: FastAPI, setup_user
+) -> None:
+    headers, _ = setup_user
+    await create_tier_direct(
+        app,
+        alias="curated",
+        display_name="Curated Model",
+        upstream_model_id="dev-model-curated",
+        price_note="Ucuz ve hızlı",
+        speed_hint=5,
+        quality_hint=2,
+    )
+    # Widen the user's plan so the curated tier is allowed for them.
+    async with app.state.database.session() as session:
+        from app.models import Plan
+        from sqlalchemy import update
+
+        await session.execute(
+            update(Plan)
+            .where(Plan.name == "free")
+            .values(allowed_tier_aliases=["fast", "balanced", "curated"])
+        )
+        await session.commit()
+    response = await client.get("/v1/models", headers=headers)
+    assert response.status_code == 200
+    curated = next(m for m in response.json()["data"] if m["id"] == "curated")
+    assert curated["details"]["display_name"] == "Curated Model"
+    assert curated["details"]["price_note"] == "Ucuz ve hızlı"
+    assert curated["details"]["speed_hint"] == 5
+    assert curated["details"]["quality_hint"] == 2
 
 
 async def test_v1_models_requires_subscription(client: AsyncClient, app: FastAPI) -> None:
