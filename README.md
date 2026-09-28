@@ -37,3 +37,28 @@ npm run compile               # build
 
 - `docs/IMPLEMENTATION-PLAN.md` — faz plani (Faz 0-5)
 - `docs/ARASTIRMA-RAPORU.md` — arastirma raporu
+- `docs/workspace-context-research.md` — ADIM 6: VS Code workspace context mekanizmalari
+- `docs/auto-select-design-note.md` — otomatik model secimi tasarim notu
+
+## Billing (Stripe)
+
+Backend iki uc sunar (her ikisi de `STRIPE_SECRET_KEY` gerektirir; yoksa 501 doner):
+
+- `POST /billing/checkout` — Stripe Checkout Session olusturur (plan secimi)
+- `GET /billing/portal` — Stripe Customer Portal (odeme yontemi, iptal, fatura)
+
+Webhook: `POST /billing/webhook` (Stripe-Signature dogrulanir, `STRIPE_WEBHOOK_SECRET`).
+Plan eslesmesi `plans.stripe_price_id` uzerinden yapilir.
+
+Masaustu tarafinda: hesap ayarlari diyalogunda plan listesi + "Choose" (Checkout)
++ "Manage Billing" (Portal) butonlari; status bar'da kredi gostergesi; chat input'ta
+yesil/sari/kirmizi kredi bari.
+
+## Release (Windows installer)
+
+```powershell
+cd vscode
+npm run gulp vscode-win32-x64          # .build/win32-x64
+npx electron-builder --win nsis --config electron-builder.yml
+# -> release/Ufuk-Setup-<version>.exe
+```
