@@ -54,6 +54,14 @@ OpenAPI docs: <http://localhost:8000/docs>
 ```powershell
 docker compose up -d postgres redis   # must be running
 .venv\Scripts\python -m pytest -q
+```
+
+Tests run against a **dedicated database** (`evren_test`) and Redis logical DB 15 —
+never the dev database. `tests/conftest.py` rewrites `DATABASE_URL`/`REDIS_URL`
+before any app import (so a misconfigured env cannot point the suite at dev data),
+creates `evren_test` if missing, and `clean_tables` refuses to TRUNCATE any database
+whose name does not contain "test" (defense in depth; pinned by
+`tests/test_db_isolation.py`).
 .venv\Scripts\ruff check app tests alembic
 .venv\Scripts\ruff format --check app tests alembic
 .venv\Scripts\mypy
