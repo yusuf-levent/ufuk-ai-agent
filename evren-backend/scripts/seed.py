@@ -113,6 +113,7 @@ DEFAULT_PLANS = {
         "requests_per_minute": 10,
         "allowed_tier_aliases": ["fast"],
         "is_default": True,
+        "price_usd": Decimal("0"),
     },
     "pro": {
         "monthly_credit_limit": Decimal("5000"),
@@ -120,6 +121,7 @@ DEFAULT_PLANS = {
         "requests_per_minute": 60,
         "allowed_tier_aliases": ALL_TIERS,
         "is_default": False,
+        "price_usd": Decimal("20"),
     },
     "team": {
         "monthly_credit_limit": Decimal("50000"),
@@ -127,6 +129,7 @@ DEFAULT_PLANS = {
         "requests_per_minute": 200,
         "allowed_tier_aliases": ALL_TIERS,
         "is_default": False,
+        "price_usd": Decimal("200"),
     },
 }
 

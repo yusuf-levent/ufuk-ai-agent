@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     global_rate_limit_per_minute: int = Field(default=60, gt=0)
     stripe_webhook_secret: SecretStr | None = None
     stripe_secret_key: SecretStr | None = None
+    stripe_success_url: str = "ufuk://billing/success"
+    stripe_cancel_url: str = "ufuk://billing/cancel"
     sentry_dsn: str | None = None
 
     @field_validator("allowed_origins", "admin_emails", mode="before")

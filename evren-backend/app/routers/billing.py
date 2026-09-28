@@ -3,19 +3,66 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from typing import Any
 
+import httpx
 import structlog
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.dependencies import get_current_user
 from app.errors import ApiError
-from app.models import Plan
+from app.models import Plan, User
 from app.services import subscriptions as subscription_service
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
+
+STRIPE_API_BASE = "https://api.stripe.com/v1"
+
+
+async def _stripe_request(
+    secret_key: str, method: str, path: str, data: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Minimal Stripe REST call (form-encoded), so no SDK dependency is needed."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.request(
+            method,
+            f"{STRIPE_API_BASE}{path}",
+            data=data,
+            auth=(secret_key, ""),
+        )
+    payload = response.json() if response.content else {}
+    if response.status_code >= 400:
+        message = payload.get("error", {}).get("message", response.text[:200])
+        logger.warning("stripe_api_error", path=path, status=response.status_code, message=message)
+        raise ApiError(
+            status_code=502,
+            message=f"Billing provider error: {message}",
+            type="api_error",
+            code="stripe_error",
+        )
+    return payload
+
+
+def _flatten(params: dict[str, Any], prefix: str = "") -> dict[str, str]:
+    """Flatten nested dicts/lists into Stripe's bracket form: line_items[0][price]."""
+    flat: dict[str, str] = {}
+    for key, value in params.items():
+        name = f"{prefix}[{key}]" if prefix else key
+        if isinstance(value, dict):
+            flat.update(_flatten(value, name))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, dict):
+                    flat.update(_flatten(item, f"{name}[{index}]"))
+                else:
+                    flat[f"{name}[{index}]"] = str(item)
+        elif value is not None:
+            flat[name] = str(value)
+    return flat
 
 
 def _verify_stripe_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -124,10 +171,111 @@ async def stripe_webhook(
 
 
 @router.get("/portal")
-async def billing_portal(request: Request) -> JSONResponse:
-    # Placeholder — returns Stripe Customer Portal URL if configured, else 501
-    # Real implementation would create a portal session via Stripe API.
-    return JSONResponse(
-        status_code=501,
-        content={"error": {"message": "Billing portal not configured", "code": "not_configured"}},
+async def billing_portal(
+    request: Request, user: User = Depends(get_current_user)
+) -> JSONResponse:
+    settings = request.app.state.settings
+    stripe_key = settings.stripe_secret_key
+    secret_key = stripe_key.get_secret_value() if stripe_key else None
+    if not secret_key:
+        raise ApiError(
+            status_code=501,
+            message="Billing portal not configured",
+            type="invalid_request_error",
+            code="not_configured",
+        )
+
+    database = request.app.state.database
+    customer_id = user.stripe_customer_id
+    if not customer_id:
+        # First time opening the portal: find (or create) the Stripe customer
+        # for this account and remember the id for next time.
+        found = await _stripe_request(
+            secret_key, "GET", f"/customers?email={user.email}&limit=1"
+        )
+        customers = found.get("data") or []
+        if customers:
+            customer_id = customers[0]["id"]
+        else:
+            metadata = {"ufuk_user_id": str(user.id)}
+            created = await _stripe_request(
+                secret_key,
+                "POST",
+                "/customers",
+                _flatten({"email": user.email, "metadata": metadata}),
+            )
+            customer_id = created["id"]
+        async with database.session() as session:
+            await session.execute(
+                update(User).where(User.id == user.id).values(stripe_customer_id=customer_id)
+            )
+            await session.commit()
+
+    portal = await _stripe_request(
+        secret_key,
+        "POST",
+        "/billing_portal/sessions",
+        _flatten({"customer": customer_id, "return_url": settings.stripe_success_url}),
     )
+    return JSONResponse(content={"url": portal["url"]})
+
+
+@router.post("/checkout")
+async def billing_checkout(
+    request: Request, user: User = Depends(get_current_user)
+) -> JSONResponse:
+    body = await request.json()
+    plan_id = body.get("plan_id")
+    if not plan_id:
+        raise ApiError(
+            status_code=400,
+            message="plan_id is required",
+            type="invalid_request_error",
+            code="missing_plan",
+        )
+
+    settings = request.app.state.settings
+    stripe_key = settings.stripe_secret_key
+    secret_key = stripe_key.get_secret_value() if stripe_key else None
+
+    database = request.app.state.database
+    async with database.session() as session:
+        plan = await session.scalar(select(Plan).where(Plan.id == plan_id))
+    if plan is None:
+        raise ApiError(
+            status_code=404,
+            message="Plan not found",
+            type="invalid_request_error",
+            code="plan_not_found",
+        )
+    if not plan.stripe_price_id:
+        raise ApiError(
+            status_code=400,
+            message="Plan is not purchasable yet",
+            type="invalid_request_error",
+            code="plan_not_purchasable",
+        )
+    if not secret_key:
+        raise ApiError(
+            status_code=501,
+            message="Billing is not configured",
+            type="invalid_request_error",
+            code="not_configured",
+        )
+
+    session_data = await _stripe_request(
+        secret_key,
+        "POST",
+        "/checkout/sessions",
+        _flatten(
+            {
+                "mode": "subscription",
+                "client_reference_id": str(user.id),
+                "customer_email": user.email,
+                "line_items": [{"price": plan.stripe_price_id, "quantity": 1}],
+                "success_url": settings.stripe_success_url,
+                "cancel_url": settings.stripe_cancel_url,
+            }
+        ),
+    )
+    return JSONResponse(content={"url": session_data["url"]})

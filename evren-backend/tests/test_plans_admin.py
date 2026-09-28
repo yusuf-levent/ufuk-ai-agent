@@ -40,6 +40,10 @@ async def create_plan_direct(app, **overrides) -> Plan:
             requests_per_minute=body["requests_per_minute"],
             allowed_tier_aliases=body["allowed_tier_aliases"],
             is_default=body["is_default"],
+            stripe_price_id=body.get("stripe_price_id"),
+            price_usd=(
+                Decimal(str(body["price_usd"])) if body.get("price_usd") is not None else None
+            ),
         )
         session.add(plan)
         await session.commit()

@@ -18,3 +18,6 @@ class User(Base, IdMixin, TimestampMixin):
     )
     email_verified: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    stripe_customer_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True, default=None
+    )

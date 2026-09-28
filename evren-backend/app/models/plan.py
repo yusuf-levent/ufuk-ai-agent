@@ -18,3 +18,4 @@ class Plan(Base, IdMixin, TimestampMixin):
     allowed_tier_aliases: Mapped[list[str]] = mapped_column(ARRAY(String(50)), default=list)
     is_default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     stripe_price_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True, default=None)
