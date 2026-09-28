@@ -49,6 +49,35 @@ docker compose up --build
 
 OpenAPI docs: <http://localhost:8000/docs>
 
+## Credit rates for the OpenRouter cutover
+
+Tier credit rates (`input/output_credits_per_1k_tokens`) are derived from the
+upstream's **verified** USD prices plus a parametric margin — never invented:
+
+    credits_per_1k = (usd_per_1m / 1000) * credits_per_usd * (1 + margin)
+
+- `usd_per_1m` — the upstream's published USD price per 1M tokens. With
+  `--source openrouter` the script reads them live from OpenRouter's public
+  model listing (`GET https://openrouter.ai/api/v1/models`, no API key) and
+  fails loudly when a tier's model id is missing, so a price is never guessed.
+- `credits_per_usd` — product decision: how many credits a paying user gets
+  per dollar (default `1000`).
+- `margin` — markup over upstream cost (default `0.30` = +30%): covers
+  tokenizer overhead vs. the upstream's own count, refunded failures, payment
+  processing and free-tier usage.
+
+```powershell
+# Live OpenRouter prices for the seeded tier aliases:
+.venv\Scripts\python scripts\derive_credit_rates.py --source openrouter
+
+# Different economics:
+.venv\Scripts\python scripts/derive_credit_rates.py --source openrouter --margin 0.5 --credits-per-usd 500
+```
+
+The output is a JSON list plus ready-to-paste `PATCH /admin/tiers/<id>` bodies
+(rates take effect immediately; no restart needed). The tier alias -> OpenRouter
+model id mapping lives in the script's `TIER_MODEL_IDS` and is mirrored in
+`.env.example`.
 ## Test
 
 ```powershell
