@@ -21,3 +21,9 @@ class User(Base, IdMixin, TimestampMixin):
     stripe_customer_id: Mapped[str | None] = mapped_column(
         String(100), unique=True, index=True, nullable=True, default=None
     )
+    # Provider-agnostic customer id (Stripe `cus_...`, Dodo `cus_...`, Paddle
+    # `ctm_...`). Preferred over `stripe_customer_id`, which is kept for
+    # backwards compatibility with existing rows and clients.
+    provider_customer_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, index=True, nullable=True, default=None
+    )

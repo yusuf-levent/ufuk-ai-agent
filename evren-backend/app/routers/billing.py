@@ -1,109 +1,88 @@
+"""Billing endpoints: checkout, customer portal, and provider webhooks.
+
+Provider-agnostic: the active backend (Stripe, Dodo Payments, Paddle) is
+selected with `BILLING_PROVIDER` and every provider-specific concern (API
+shape, auth, webhook signature) lives in `app.services.billing_providers`.
+This router only maps normalized events onto `assign_plan()`.
+
+Endpoints:
+* `POST /billing/checkout` -- hosted checkout session for a plan
+* `GET  /billing/portal`  -- customer self-service billing portal
+* `POST /billing/webhook` -- provider webhook (signature-verified)
+"""
+
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
-from typing import Any
-
-import httpx
 import structlog
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.dependencies import get_current_user
 from app.errors import ApiError
 from app.models import Plan, User
 from app.services import subscriptions as subscription_service
+from app.services.billing_providers import (
+    BillingError,
+    EventType,
+    WebhookVerificationError,
+    get_provider,
+)
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
-STRIPE_API_BASE = "https://api.stripe.com/v1"
 
-
-async def _stripe_request(
-    secret_key: str, method: str, path: str, data: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    """Minimal Stripe REST call (form-encoded), so no SDK dependency is needed."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.request(
-            method,
-            f"{STRIPE_API_BASE}{path}",
-            data=data,
-            auth=(secret_key, ""),
+def _resolve(settings):
+    """Return (provider, api_key, webhook_secret, success_url, cancel_url)."""
+    provider = get_provider(settings.billing_provider)
+    api_key = (
+        settings.billing_api_key.get_secret_value()
+        if settings.billing_api_key
+        else (settings.stripe_secret_key.get_secret_value() if settings.stripe_secret_key else None)
+    )
+    webhook_secret = (
+        settings.billing_webhook_secret.get_secret_value()
+        if settings.billing_webhook_secret
+        else (
+            settings.stripe_webhook_secret.get_secret_value()
+            if settings.stripe_webhook_secret
+            else None
         )
-    payload = response.json() if response.content else {}
-    if response.status_code >= 400:
-        message = payload.get("error", {}).get("message", response.text[:200])
-        logger.warning("stripe_api_error", path=path, status=response.status_code, message=message)
-        raise ApiError(
-            status_code=502,
-            message=f"Billing provider error: {message}",
-            type="api_error",
-            code="stripe_error",
-        )
-    return payload
+    )
+    success_url = settings.billing_success_url or settings.stripe_success_url
+    cancel_url = settings.billing_cancel_url or settings.stripe_cancel_url
+    return provider, api_key, webhook_secret, success_url, cancel_url
 
 
-def _flatten(params: dict[str, Any], prefix: str = "") -> dict[str, str]:
-    """Flatten nested dicts/lists into Stripe's bracket form: line_items[0][price]."""
-    flat: dict[str, str] = {}
-    for key, value in params.items():
-        name = f"{prefix}[{key}]" if prefix else key
-        if isinstance(value, dict):
-            flat.update(_flatten(value, name))
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                if isinstance(item, dict):
-                    flat.update(_flatten(item, f"{name}[{index}]"))
-                else:
-                    flat[f"{name}[{index}]"] = str(item)
-        elif value is not None:
-            flat[name] = str(value)
-    return flat
-
-
-def _verify_stripe_signature(payload: bytes, signature: str, secret: str) -> bool:
-    # Minimal Stripe signature check: HMAC-SHA256 of payload with webhook secret.
-    # Stripe sends "t=...,v1=..." — we verify v1 against our secret.
-    try:
-        parts = dict(item.split("=", 1) for item in signature.split(",") if "=" in item)
-        v1 = parts.get("v1", "")
-        timestamp = parts.get("t", "")
-        signed_payload = f"{timestamp}.{payload.decode()}".encode()
-        expected = hmac.new(secret.encode(), signed_payload, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, v1)
-    except Exception:
-        return False
+def _billing_error(exc: BillingError) -> ApiError:
+    return ApiError(status_code=502, message=exc.message, type="api_error", code=exc.code)
 
 
 @router.post("/webhook")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
-) -> JSONResponse:
+async def billing_webhook(request: Request) -> JSONResponse:
     settings = request.app.state.settings
-    secret = (
-        settings.stripe_webhook_secret.get_secret_value()
-        if settings.stripe_webhook_secret
-        else None
-    )
+    try:
+        provider, _, webhook_secret, _, _ = _resolve(settings)
+    except BillingError as exc:
+        raise _billing_error(exc) from exc
+
     body = await request.body()
 
-    if secret and stripe_signature and not _verify_stripe_signature(
-        body, stripe_signature, secret
-    ):
-        raise ApiError(
-            status_code=400,
-            message="Invalid Stripe signature",
-            type="invalid_request_error",
-            code="invalid_signature",
-        )
+    if webhook_secret:
+        try:
+            provider.verify_webhook(payload=body, headers=request.headers, secret=webhook_secret)
+        except WebhookVerificationError as exc:
+            raise ApiError(
+                status_code=400,
+                message=str(exc),
+                type="invalid_request_error",
+                code="invalid_signature",
+            ) from exc
 
     try:
-        event = json.loads(body.decode())
+        event = provider.parse_event(body)
     except Exception as exc:
         raise ApiError(
             status_code=400,
@@ -112,37 +91,25 @@ async def stripe_webhook(
             code="invalid_payload",
         ) from exc
 
-    event_type = event.get("type", "")
-    data = event.get("data", {}).get("object", {}) if isinstance(event.get("data"), dict) else {}
+    if event is None:
+        return JSONResponse(content={"received": True, "ignored": True})
 
-    # We map Stripe price -> Plan via stripe_price_id
-    price_id = None
-    customer_details = data.get("customer_details")
-    customer_email = data.get("customer_email") or (
-        customer_details.get("email") if isinstance(customer_details, dict) else None
-    )
-    # For checkout.session.completed, line items contain price
-    if event_type in (
-        "checkout.session.completed",
-        "customer.subscription.created",
-        "customer.subscription.updated",
-    ):
-        # Try to extract price_id from various shapes
-        items_obj = data.get("items")
-        if isinstance(items_obj, dict):
-            items = items_obj.get("data", [])
-            if items and isinstance(items[0], dict):
-                price_val = items[0].get("price")
-                price_id = price_val.get("id") if isinstance(price_val, dict) else price_val
-        if not price_id and isinstance(data.get("price"), dict):
-            price_id = data["price"].get("id")
-        if not price_id:
-            price_id = data.get("price_id") or data.get("plan_price_id")
+    # Only lifecycle events that grant or extend access trigger assign_plan().
+    if event.type not in (EventType.SUBSCRIPTION_STARTED, EventType.SUBSCRIPTION_RENEWED):
+        logger.info(
+            "billing_webhook_ignored",
+            provider=provider.name,
+            event_type=event.provider_event_type,
+            normalized=event.type.value,
+        )
+        return JSONResponse(content={"received": True, "ignored": True})
 
+    price_id = event.provider_price_id
+    customer_email = event.customer_email
     if not price_id or not customer_email:
         logger.info(
             "billing_webhook_ignored",
-            event_type=event_type,
+            event_type=event.provider_event_type,
             has_price=bool(price_id),
             has_email=bool(customer_email),
         )
@@ -150,13 +117,16 @@ async def stripe_webhook(
 
     database = request.app.state.database
     async with database.session() as session:
-        plan = await session.scalar(select(Plan).where(Plan.stripe_price_id == price_id))
+        plan = await session.scalar(
+            select(Plan).where(
+                or_(Plan.provider_price_id == price_id, Plan.stripe_price_id == price_id)
+            )
+        )
         if plan is None:
             logger.warning("billing_webhook_unknown_price", price_id=price_id)
             return JSONResponse(
                 content={"received": True, "ignored": True, "reason": "unknown_price"}
             )
-        from app.models import User
 
         user = await session.scalar(select(User).where(User.email == customer_email))
         if user is None:
@@ -166,7 +136,13 @@ async def stripe_webhook(
             )
 
     await subscription_service.assign_plan(database, user.id, plan.id)
-    logger.info("billing_webhook_assigned", email=customer_email, plan=plan.name, price_id=price_id)
+    logger.info(
+        "billing_webhook_assigned",
+        provider=provider.name,
+        email=customer_email,
+        plan=plan.name,
+        price_id=price_id,
+    )
     return JSONResponse(content={"received": True, "plan": plan.name})
 
 
@@ -175,9 +151,11 @@ async def billing_portal(
     request: Request, user: User = Depends(get_current_user)
 ) -> JSONResponse:
     settings = request.app.state.settings
-    stripe_key = settings.stripe_secret_key
-    secret_key = stripe_key.get_secret_value() if stripe_key else None
-    if not secret_key:
+    try:
+        provider, api_key, _, success_url, _ = _resolve(settings)
+    except BillingError as exc:
+        raise _billing_error(exc) from exc
+    if not provider.is_configured(api_key):
         raise ApiError(
             status_code=501,
             message="Billing portal not configured",
@@ -186,38 +164,31 @@ async def billing_portal(
         )
 
     database = request.app.state.database
-    customer_id = user.stripe_customer_id
+    customer_id = user.provider_customer_id or user.stripe_customer_id
     if not customer_id:
-        # First time opening the portal: find (or create) the Stripe customer
-        # for this account and remember the id for next time.
-        found = await _stripe_request(
-            secret_key, "GET", f"/customers?email={user.email}&limit=1"
-        )
-        customers = found.get("data") or []
-        if customers:
-            customer_id = customers[0]["id"]
-        else:
-            metadata = {"ufuk_user_id": str(user.id)}
-            created = await _stripe_request(
-                secret_key,
-                "POST",
-                "/customers",
-                _flatten({"email": user.email, "metadata": metadata}),
-            )
-            customer_id = created["id"]
+        # First time opening the portal: find (or create) the provider
+        # customer for this account and remember the id for next time.
+        try:
+            customer_id = await provider.find_customer_id(api_key=api_key, email=user.email)
+            if not customer_id:
+                customer_id = await provider.create_customer(
+                    api_key=api_key, email=user.email, user_id=str(user.id)
+                )
+        except BillingError as exc:
+            raise _billing_error(exc) from exc
         async with database.session() as session:
             await session.execute(
-                update(User).where(User.id == user.id).values(stripe_customer_id=customer_id)
+                update(User).where(User.id == user.id).values(provider_customer_id=customer_id)
             )
             await session.commit()
 
-    portal = await _stripe_request(
-        secret_key,
-        "POST",
-        "/billing_portal/sessions",
-        _flatten({"customer": customer_id, "return_url": settings.stripe_success_url}),
-    )
-    return JSONResponse(content={"url": portal["url"]})
+    try:
+        portal = await provider.create_portal(
+            api_key=api_key, provider_customer_id=customer_id, return_url=success_url
+        )
+    except BillingError as exc:
+        raise _billing_error(exc) from exc
+    return JSONResponse(content={"url": portal.url})
 
 
 @router.post("/checkout")
@@ -235,8 +206,10 @@ async def billing_checkout(
         )
 
     settings = request.app.state.settings
-    stripe_key = settings.stripe_secret_key
-    secret_key = stripe_key.get_secret_value() if stripe_key else None
+    try:
+        provider, api_key, _, success_url, cancel_url = _resolve(settings)
+    except BillingError as exc:
+        raise _billing_error(exc) from exc
 
     database = request.app.state.database
     async with database.session() as session:
@@ -248,14 +221,15 @@ async def billing_checkout(
             type="invalid_request_error",
             code="plan_not_found",
         )
-    if not plan.stripe_price_id:
+    price_id = plan.provider_price_id or plan.stripe_price_id
+    if not price_id:
         raise ApiError(
             status_code=400,
             message="Plan is not purchasable yet",
             type="invalid_request_error",
             code="plan_not_purchasable",
         )
-    if not secret_key:
+    if not provider.is_configured(api_key):
         raise ApiError(
             status_code=501,
             message="Billing is not configured",
@@ -263,19 +237,15 @@ async def billing_checkout(
             code="not_configured",
         )
 
-    session_data = await _stripe_request(
-        secret_key,
-        "POST",
-        "/checkout/sessions",
-        _flatten(
-            {
-                "mode": "subscription",
-                "client_reference_id": str(user.id),
-                "customer_email": user.email,
-                "line_items": [{"price": plan.stripe_price_id, "quantity": 1}],
-                "success_url": settings.stripe_success_url,
-                "cancel_url": settings.stripe_cancel_url,
-            }
-        ),
-    )
-    return JSONResponse(content={"url": session_data["url"]})
+    try:
+        session_data = await provider.create_checkout(
+            api_key=api_key,
+            provider_price_id=price_id,
+            user_id=str(user.id),
+            user_email=user.email,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except BillingError as exc:
+        raise _billing_error(exc) from exc
+    return JSONResponse(content={"url": session_data.url})

@@ -25,12 +25,24 @@ def _load_seed_module():
 def test_seed_tier_ceilings_match_reasoning_model_needs() -> None:
     seed = _load_seed_module()
     assert seed.DEFAULT_TIERS["fast"]["max_output_tokens"] == 8192
-    assert seed.DEFAULT_TIERS["fast"]["price_note"] == "Cheapest — for short questions and quick tasks"
-    assert seed.DEFAULT_TIERS["fast"]["price_note_tr"] == "En ucuz — kısa sorular ve hızlı görevler için"
+    assert (
+        seed.DEFAULT_TIERS["fast"]["price_note"]
+        == "Cheapest — for short questions and quick tasks"
+    )
+    assert (
+        seed.DEFAULT_TIERS["fast"]["price_note_tr"]
+        == "En ucuz — kısa sorular ve hızlı görevler için"
+    )
     assert seed.DEFAULT_TIERS["balanced"]["max_output_tokens"] == 8192
     assert seed.DEFAULT_TIERS["strong"]["max_output_tokens"] == 16384
-    assert seed.DEFAULT_TIERS["strong"]["price_note"] == "Most powerful — complex tasks, more expensive"
-    assert seed.DEFAULT_TIERS["strong"]["price_note_tr"] == "En güçlü — karmaşık görevler, daha pahalı"
+    assert (
+        seed.DEFAULT_TIERS["strong"]["price_note"]
+        == "Most powerful — complex tasks, more expensive"
+    )
+    assert (
+        seed.DEFAULT_TIERS["strong"]["price_note_tr"]
+        == "En güçlü — karmaşık görevler, daha pahalı"
+    )
 
 
 def test_seed_plan_caps_never_clamp_tier_ceilings() -> None:

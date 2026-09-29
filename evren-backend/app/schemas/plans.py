@@ -21,6 +21,7 @@ class PlanResponse(BaseModel):
     allowed_tier_aliases: list[str]
     is_default: bool
     stripe_price_id: str | None = None
+    provider_price_id: str | None = None
     price_usd: Decimal | None = None
 
 
@@ -32,6 +33,7 @@ class PlanCreate(BaseModel):
     allowed_tier_aliases: list[str] = Field(min_length=1)
     is_default: bool = False
     stripe_price_id: str | None = Field(default=None, max_length=100)
+    provider_price_id: str | None = Field(default=None, max_length=100)
     price_usd: Decimal | None = Field(default=None, ge=0)
 
 
@@ -43,6 +45,7 @@ class PlanUpdate(BaseModel):
     allowed_tier_aliases: list[str] | None = Field(default=None, min_length=1)
     is_default: bool | None = None
     stripe_price_id: str | None = Field(default=None, max_length=100)
+    provider_price_id: str | None = Field(default=None, max_length=100)
     price_usd: Decimal | None = Field(default=None, ge=0)
 
 

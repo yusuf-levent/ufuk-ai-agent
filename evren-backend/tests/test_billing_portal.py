@@ -1,7 +1,8 @@
 """Billing portal + checkout endpoints (ADIM 8.1).
 
-Stripe is mocked at the `_stripe_request` boundary so these tests never touch
-the network and never need a real API key.
+The active provider (Stripe by default, or Dodo Payments / Paddle via
+`BILLING_PROVIDER`) is mocked at the `PaymentProvider` method boundary so
+these tests never touch the network and never need a real API key.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.models import User
+from app.services.billing_providers.stripe import StripeProvider
 from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import SecretStr
@@ -20,7 +22,7 @@ from tests.test_plans_admin import create_plan_direct
 
 
 def _stripe_mock(responses: dict[str, dict]) -> AsyncMock:
-    """Return a fake `_stripe_request` keyed by `METHOD /path`."""
+    """Return a fake provider whose `_request` is keyed by `METHOD /path`."""
 
     async def _fake(secret_key: str, method: str, path: str, data=None):
         key = f"{method} {path.split('?')[0]}"
@@ -33,18 +35,24 @@ def _stripe_mock(responses: dict[str, dict]) -> AsyncMock:
 
 @pytest.fixture(autouse=True)
 def _isolate_stripe_settings(app: FastAPI):
-    """Settings are shared across tests; keep `stripe_secret_key` from leaking."""
+    """Settings are shared across tests; keep billing credentials from leaking."""
     settings = app.state.settings
     original = settings.stripe_secret_key
+    original_provider = settings.billing_provider
+    original_api_key = settings.billing_api_key
     settings.stripe_secret_key = None
+    settings.billing_provider = "stripe"
+    settings.billing_api_key = None
     yield
     settings.stripe_secret_key = original
+    settings.billing_provider = original_provider
+    settings.billing_api_key = original_api_key
 
 
 async def _stripe_customer_id(app: FastAPI, email: str) -> str | None:
     async with app.state.database.session() as session:
         user = await session.scalar(select(User).where(User.email == email))
-        return user.stripe_customer_id if user else None
+        return user.provider_customer_id if user else None
 
 
 # ---- GET /billing/portal ----------------------------------------------------
@@ -64,7 +72,7 @@ async def test_portal_not_configured(client: AsyncClient, app: FastAPI) -> None:
 
 async def test_portal_creates_customer_and_returns_url(client: AsyncClient, app: FastAPI) -> None:
     headers = await register_and_login(client, "portal-new@example.com")
-    app.state.settings.stripe_secret_key = SecretStr("sk_test_dummy")
+    app.state.settings.billing_api_key = SecretStr("sk_test_dummy")
 
     fake = _stripe_mock(
         {
@@ -73,7 +81,7 @@ async def test_portal_creates_customer_and_returns_url(client: AsyncClient, app:
             "POST /billing_portal/sessions": {"url": "https://billing.stripe.com/session/test"},
         }
     )
-    with patch("app.routers.billing._stripe_request", fake):
+    with patch.object(StripeProvider, "_request", fake):
         response = await client.get("/billing/portal", headers=headers)
 
     assert response.status_code == 200
@@ -84,7 +92,7 @@ async def test_portal_creates_customer_and_returns_url(client: AsyncClient, app:
 
 async def test_portal_reuses_existing_customer(client: AsyncClient, app: FastAPI) -> None:
     headers = await register_and_login(client, "portal-reuse@example.com")
-    app.state.settings.stripe_secret_key = SecretStr("sk_test_dummy")
+    app.state.settings.billing_api_key = SecretStr("sk_test_dummy")
 
     fake = _stripe_mock(
         {
@@ -92,7 +100,7 @@ async def test_portal_reuses_existing_customer(client: AsyncClient, app: FastAPI
             "POST /billing_portal/sessions": {"url": "https://billing.stripe.com/session/reuse"},
         }
     )
-    with patch("app.routers.billing._stripe_request", fake):
+    with patch.object(StripeProvider, "_request", fake):
         response = await client.get("/billing/portal", headers=headers)
 
     assert response.status_code == 200
@@ -124,7 +132,9 @@ async def test_checkout_plan_not_found(client: AsyncClient, app: FastAPI) -> Non
 
 async def test_checkout_plan_not_purchasable(client: AsyncClient, app: FastAPI) -> None:
     headers = await register_and_login(client, "checkout-np@example.com")
-    plan = await create_plan_direct(app, name="nostripe", stripe_price_id=None)
+    plan = await create_plan_direct(
+        app, name="nostripe", stripe_price_id=None, provider_price_id=None
+    )
     response = await client.post(
         "/billing/checkout", json={"plan_id": str(plan.id)}, headers=headers
     )
@@ -134,15 +144,19 @@ async def test_checkout_plan_not_purchasable(client: AsyncClient, app: FastAPI) 
 
 async def test_checkout_creates_session(client: AsyncClient, app: FastAPI) -> None:
     headers = await register_and_login(client, "checkout-ok@example.com")
-    app.state.settings.stripe_secret_key = SecretStr("sk_test_dummy")
+    app.state.settings.billing_api_key = SecretStr("sk_test_dummy")
     plan = await create_plan_direct(
-        app, name="pro-checkout", stripe_price_id="price_pro123", price_usd="20"
+        app,
+        name="pro-checkout",
+        stripe_price_id="price_pro123",
+        provider_price_id="price_pro123",
+        price_usd="20",
     )
 
     fake = _stripe_mock(
         {"POST /checkout/sessions": {"url": "https://checkout.stripe.com/session/test"}}
     )
-    with patch("app.routers.billing._stripe_request", fake):
+    with patch.object(StripeProvider, "_request", fake):
         response = await client.post(
             "/billing/checkout", json={"plan_id": str(plan.id)}, headers=headers
         )
@@ -153,7 +167,9 @@ async def test_checkout_creates_session(client: AsyncClient, app: FastAPI) -> No
 
 async def test_checkout_not_configured(client: AsyncClient, app: FastAPI) -> None:
     headers = await register_and_login(client, "checkout-nc@example.com")
-    plan = await create_plan_direct(app, name="pro-nc", stripe_price_id="price_x")
+    plan = await create_plan_direct(
+        app, name="pro-nc", stripe_price_id="price_x", provider_price_id="price_x"
+    )
     response = await client.post(
         "/billing/checkout", json={"plan_id": str(plan.id)}, headers=headers
     )
@@ -165,9 +181,16 @@ async def test_checkout_not_configured(client: AsyncClient, app: FastAPI) -> Non
 
 
 async def test_plans_include_price_usd(client: AsyncClient, app: FastAPI) -> None:
-    await create_plan_direct(app, name="priced", price_usd="20", stripe_price_id="price_p")
+    await create_plan_direct(
+        app,
+        name="priced",
+        price_usd="20",
+        stripe_price_id="price_p",
+        provider_price_id="price_p",
+    )
     response = await client.get("/plans")
     assert response.status_code == 200
     priced = next(p for p in response.json() if p["name"] == "priced")
     assert Decimal(priced["price_usd"]) == Decimal("20")
     assert priced["stripe_price_id"] == "price_p"
+    assert priced["provider_price_id"] == "price_p"

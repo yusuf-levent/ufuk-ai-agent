@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     environment: Literal["dev", "prod"] = "dev"
     request_max_body_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     global_rate_limit_per_minute: int = Field(default=60, gt=0)
+    # Provider-agnostic billing. `billing_provider` selects the backend
+    # (stripe | dodo | dodo_live | paddle | paddle_live); the generic
+    # `billing_*` values win when set, and the legacy `stripe_*` values below
+    # remain as a fallback so existing .env files keep working unchanged.
+    billing_provider: str = "stripe"
+    billing_api_key: SecretStr | None = None
+    billing_webhook_secret: SecretStr | None = None
+    billing_success_url: str | None = None
+    billing_cancel_url: str | None = None
     stripe_webhook_secret: SecretStr | None = None
     stripe_secret_key: SecretStr | None = None
     stripe_success_url: str = "ufuk://billing/success"

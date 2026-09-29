@@ -41,6 +41,7 @@ async def create_plan_direct(app, **overrides) -> Plan:
             allowed_tier_aliases=body["allowed_tier_aliases"],
             is_default=body["is_default"],
             stripe_price_id=body.get("stripe_price_id"),
+            provider_price_id=body.get("provider_price_id"),
             price_usd=(
                 Decimal(str(body["price_usd"])) if body.get("price_usd") is not None else None
             ),

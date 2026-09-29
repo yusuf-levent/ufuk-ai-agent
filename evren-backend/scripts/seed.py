@@ -121,6 +121,7 @@ DEFAULT_PLANS = {
         "allowed_tier_aliases": ["fast"],
         "is_default": True,
         "price_usd": Decimal("0"),
+        "provider_price_id": None,
     },
     "pro": {
         "monthly_credit_limit": Decimal("5000"),
@@ -129,6 +130,9 @@ DEFAULT_PLANS = {
         "allowed_tier_aliases": ALL_TIERS,
         "is_default": False,
         "price_usd": Decimal("20"),
+        # Set to the provider's price/product id (Stripe `price_...`, Dodo
+        # `pdt_...`, Paddle `pri_...`) to make this plan purchasable.
+        "provider_price_id": None,
     },
     "team": {
         "monthly_credit_limit": Decimal("50000"),
@@ -137,6 +141,7 @@ DEFAULT_PLANS = {
         "allowed_tier_aliases": ALL_TIERS,
         "is_default": False,
         "price_usd": Decimal("200"),
+        "provider_price_id": None,
     },
 }
 
