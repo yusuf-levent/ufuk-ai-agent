@@ -57,9 +57,11 @@ async def test_v1_models_lists_plan_tiers_with_details(
     assert fast["details"]["context_window"] == 128000
     # Picker fields: absent when the tier row carries no curated hints.
     assert "price_note" in fast["details"]
+    assert "price_note_tr" in fast["details"]
     assert "speed_hint" in fast["details"]
     assert "quality_hint" in fast["details"]
     assert fast["details"]["price_note"] is None
+    assert fast["details"]["price_note_tr"] is None
     assert fast["details"]["speed_hint"] is None
     assert fast["details"]["quality_hint"] is None
 
@@ -73,7 +75,8 @@ async def test_v1_models_returns_curated_picker_fields(
         alias="curated",
         display_name="Curated Model",
         upstream_model_id="dev-model-curated",
-        price_note="Ucuz ve hızlı",
+        price_note="Cheap and fast",
+        price_note_tr="Ucuz ve hızlı",
         speed_hint=5,
         quality_hint=2,
     )
@@ -92,7 +95,8 @@ async def test_v1_models_returns_curated_picker_fields(
     assert response.status_code == 200
     curated = next(m for m in response.json()["data"] if m["id"] == "curated")
     assert curated["details"]["display_name"] == "Curated Model"
-    assert curated["details"]["price_note"] == "Ucuz ve hızlı"
+    assert curated["details"]["price_note"] == "Cheap and fast"
+    assert curated["details"]["price_note_tr"] == "Ucuz ve hızlı"
     assert curated["details"]["speed_hint"] == 5
     assert curated["details"]["quality_hint"] == 2
 

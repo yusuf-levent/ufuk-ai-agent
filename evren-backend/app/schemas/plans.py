@@ -59,6 +59,7 @@ class TierResponse(BaseModel):
     max_output_tokens: int
     context_window: int
     price_note: str | None = None
+    price_note_tr: str | None = None
     speed_hint: int | None = None
     quality_hint: int | None = None
     enabled: bool
@@ -74,6 +75,7 @@ class TierCreate(BaseModel):
     max_output_tokens: int = Field(gt=0)
     context_window: int = Field(gt=0)
     price_note: str | None = Field(default=None, max_length=200)
+    price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)
     quality_hint: int | None = Field(default=None, ge=1, le=5)
     enabled: bool = True
@@ -88,6 +90,7 @@ class TierUpdate(BaseModel):
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)
     price_note: str | None = Field(default=None, max_length=200)
+    price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)
     quality_hint: int | None = Field(default=None, ge=1, le=5)
     enabled: bool | None = None

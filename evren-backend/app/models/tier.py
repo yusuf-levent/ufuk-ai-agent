@@ -23,6 +23,7 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     # picker (e.g. "Ucuz ve hızlı"). Manually curated via seed/admin — never
     # derived automatically from upstream pricing.
     price_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    price_note_tr: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Simple 1-5 ordering hints for picker labels (higher = faster/better).
     speed_hint: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quality_hint: Mapped[int | None] = mapped_column(Integer, nullable=True)

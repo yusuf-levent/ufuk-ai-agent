@@ -565,6 +565,7 @@ async def list_models(request: Request, user: User = Depends(get_current_user)) 
                     "max_output_tokens": tier.max_output_tokens,
                     "context_window": tier.context_window,
                     "price_note": tier.price_note,
+                    "price_note_tr": tier.price_note_tr,
                     "speed_hint": tier.speed_hint,
                     "quality_hint": tier.quality_hint,
                 },

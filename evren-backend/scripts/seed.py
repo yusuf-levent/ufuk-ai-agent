@@ -28,7 +28,8 @@ PROVIDER = os.environ.get("SEED_PROVIDER", "evren-llmapi")
 # Upstream model ids verified against GET /v1/models on evren-llmapi
 # (2026-09-27). All six are chat-task models with tools=true.
 # price_note is manually curated (never auto-derived): it reflects this
-# gateway's credit pricing, not upstream USD prices.
+# gateway's credit pricing, not upstream USD prices. `price_note` is the
+# English (default) variant; `price_note_tr` holds the Turkish translation.
 DEFAULT_TIERS = {
     "fast": {
         "display_name": "DeepSeek V4 Flash",
@@ -38,7 +39,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("1.0"),
         "max_output_tokens": 8192,
         "context_window": 128000,
-        "price_note": "En ucuz — kısa sorular ve hızlı görevler için",
+        "price_note": "Cheapest — for short questions and quick tasks",
+        "price_note_tr": "En ucuz — kısa sorular ve hızlı görevler için",
         "speed_hint": 5,
         "quality_hint": 2,
     },
@@ -50,7 +52,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("1.2"),
         "max_output_tokens": 8192,
         "context_window": 128000,
-        "price_note": "Ucuz ve hızlı, görsel girdi destekli",
+        "price_note": "Cheap and fast, supports image input",
+        "price_note_tr": "Ucuz ve hızlı, görsel girdi destekli",
         "speed_hint": 5,
         "quality_hint": 3,
     },
@@ -62,7 +65,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("3.0"),
         "max_output_tokens": 8192,
         "context_window": 128000,
-        "price_note": "Dengeli — günlük kullanım için iyi seçim",
+        "price_note": "Balanced — good choice for daily use",
+        "price_note_tr": "Dengeli — günlük kullanım için iyi seçim",
         "speed_hint": 4,
         "quality_hint": 3,
     },
@@ -74,7 +78,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("3.6"),
         "max_output_tokens": 8192,
         "context_window": 128000,
-        "price_note": "Dengeli, görsel girdi destekli",
+        "price_note": "Balanced, supports image input",
+        "price_note_tr": "Dengeli, görsel girdi destekli",
         "speed_hint": 4,
         "quality_hint": 3,
     },
@@ -86,7 +91,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("8.0"),
         "max_output_tokens": 16384,
         "context_window": 200000,
-        "price_note": "En güçlü — karmaşık görevler, daha pahalı",
+        "price_note": "Most powerful — complex tasks, more expensive",
+        "price_note_tr": "En güçlü — karmaşık görevler, daha pahalı",
         "speed_hint": 2,
         "quality_hint": 5,
     },
@@ -98,7 +104,8 @@ DEFAULT_TIERS = {
         "output_credits_per_1k_tokens": Decimal("9.0"),
         "max_output_tokens": 16384,
         "context_window": 200000,
-        "price_note": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
+        "price_note": "Powerful, long reasoning and image input",
+        "price_note_tr": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
         "speed_hint": 2,
         "quality_hint": 4,
     },
