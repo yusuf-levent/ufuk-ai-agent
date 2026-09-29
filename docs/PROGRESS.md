@@ -49,9 +49,15 @@
 - [x] `LICENSE.txt` (MIT) eklendi
 - [x] `build/resources/ufuk.ico` üretildi (PNG'den, çok boyutlu ICO)
 - [x] `extensions/copilot/.../shims.txt` marker'ı oluşturuldu (build önkoşulu)
-- [ ] `npm run gulp vscode-win32-x64` → `.build/win32-x64`
-- [ ] `npx electron-builder --win nsis` → `release/Ufuk-Setup-<version>.exe`
+- [x] `npm run gulp vscode-win32-x64` → `.build/win32-x64` → `VSCode-win32-x64/`
+- [x] `npx electron-builder --win nsis` → `release/Ufuk-Setup-1.140.0.exe` (307.8 MB)
 - [ ] Playwright e2e: login → Agent "şu testi düzelt" → tool call → diff → undo
+
+### Build düzeltmeleri (2026-09-29)
+
+- `signtool.exe` yoksa imza yok say (Windows SDK gerekmez)
+- `rcedit` glob'una non-Windows prebuild ignore (linux/darwin/alpine `*.node`)
+- `.moduleignore` `@github/copilot/**` strip ettiği için SDK yok → graceful skip
 
 ## Bilinen Boşluklar (bilinçli ertelendi)
 
