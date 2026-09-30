@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request

@@ -136,6 +136,7 @@ def test_validate_prompt() -> None:
 
 async def test_consume_quota_charges_by_quality(app: FastAPI, tmp_path):
     from app.models import Plan
+    from tests.helpers import create_user
 
     service = ImageService(app.state.database, tmp_path)
     plan = Plan(
@@ -146,17 +147,18 @@ async def test_consume_quota_charges_by_quality(app: FastAPI, tmp_path):
         monthly_image_quota=10,
         allowed_tier_aliases=["fast"],
     )
-    user_id = uuid.uuid4()
+    user = await create_user(app, "quota-charge@example.com")
 
     # 1 ultra (weight 4) + 1 standard (weight 1) = 5 credits
-    total1 = await service.consume_quota(user_id, plan, ImageQuality.ULTRA, 1)
+    total1 = await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 1)
     assert total1 == 4
-    total2 = await service.consume_quota(user_id, plan, ImageQuality.STANDARD, 1)
+    total2 = await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1)
     assert total2 == 1
 
 
 async def test_consume_quota_rejects_over_quota(app: FastAPI, tmp_path):
     from app.models import Plan
+    from tests.helpers import create_user
 
     service = ImageService(app.state.database, tmp_path)
     plan = Plan(
@@ -167,16 +169,17 @@ async def test_consume_quota_rejects_over_quota(app: FastAPI, tmp_path):
         monthly_image_quota=3,
         allowed_tier_aliases=["fast"],
     )
-    user_id = uuid.uuid4()
+    user = await create_user(app, "quota-over@example.com")
 
     # 2 ultra = 8 credits > 3 quota
     with pytest.raises(ApiError) as exc:
-        await service.consume_quota(user_id, plan, ImageQuality.ULTRA, 2)
+        await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 2)
     assert exc.value.code == "image_quota_exceeded"
 
 
 async def test_consume_quota_rejects_disabled_plan(app: FastAPI, tmp_path):
     from app.models import Plan
+    from tests.helpers import create_user
 
     service = ImageService(app.state.database, tmp_path)
     plan = Plan(
@@ -187,13 +190,15 @@ async def test_consume_quota_rejects_disabled_plan(app: FastAPI, tmp_path):
         monthly_image_quota=None,
         allowed_tier_aliases=["fast"],
     )
+    user = await create_user(app, "quota-disabled@example.com")
     with pytest.raises(ApiError) as exc:
-        await service.consume_quota(uuid.uuid4(), plan, ImageQuality.STANDARD, 1)
+        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1)
     assert exc.value.code == "image_generation_disabled"
 
 
 async def test_consume_quota_rejects_invalid_count(app: FastAPI, tmp_path):
     from app.models import Plan
+    from tests.helpers import create_user
 
     service = ImageService(app.state.database, tmp_path)
     plan = Plan(
@@ -204,11 +209,12 @@ async def test_consume_quota_rejects_invalid_count(app: FastAPI, tmp_path):
         monthly_image_quota=100,
         allowed_tier_aliases=["fast"],
     )
+    user = await create_user(app, "quota-count@example.com")
     with pytest.raises(ApiError):
-        await service.consume_quota(uuid.uuid4(), plan, ImageQuality.STANDARD, 0)
+        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 0)
     with pytest.raises(ApiError):
         await service.consume_quota(
-            uuid.uuid4(), plan, ImageQuality.STANDARD, MAX_IMAGES_PER_REQUEST + 1
+            user.id, plan, ImageQuality.STANDARD, MAX_IMAGES_PER_REQUEST + 1
         )
 
 
@@ -218,10 +224,12 @@ async def test_consume_quota_rejects_invalid_count(app: FastAPI, tmp_path):
 
 
 async def test_store_and_read_image(app: FastAPI, tmp_path):
+    from tests.helpers import create_user
+
     service = ImageService(app.state.database, tmp_path)
-    user_id = uuid.uuid4()
+    user = await create_user(app, "store-read@example.com")
     result = await service.store(
-        user_id=user_id,
+        user_id=user.id,
         upstream_model_id="google/gemini-3.1-flash-lite-image",
         prompt="a cat",
         quality=ImageQuality.STANDARD,
@@ -242,14 +250,14 @@ async def test_read_bytes_blocks_path_traversal(app: FastAPI, tmp_path):
 
 
 async def test_delete_for_user_removes_files_and_rows(app: FastAPI, tmp_path):
-    from sqlalchemy import select
-
     from app.models import GeneratedImage
+    from sqlalchemy import select
+    from tests.helpers import create_user
 
     service = ImageService(app.state.database, tmp_path)
-    user_id = uuid.uuid4()
+    user = await create_user(app, "delete-cleanup@example.com")
     result = await service.store(
-        user_id=user_id,
+        user_id=user.id,
         upstream_model_id="m",
         prompt="x",
         quality=ImageQuality.STANDARD,
@@ -259,7 +267,7 @@ async def test_delete_for_user_removes_files_and_rows(app: FastAPI, tmp_path):
     )
     assert (tmp_path / result.storage_path).exists()
 
-    deleted = await service.delete_for_user(user_id)
+    deleted = await service.delete_for_user(user.id)
     assert deleted == 1
     assert not (tmp_path / result.storage_path).exists()
     async with app.state.database.session() as session:
@@ -275,7 +283,7 @@ async def test_delete_for_user_removes_files_and_rows(app: FastAPI, tmp_path):
 async def test_generate_image_happy_path(
     client: AsyncClient, app: FastAPI, image_env, install_image_upstream
 ):
-    headers, user_id = image_env
+    headers, _user_id = image_env
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_fake_image_response(1))
@@ -348,7 +356,7 @@ async def test_generate_image_rejects_over_quota_before_generating(
 ):
     """Quota must be checked BEFORE the upstream call — a rejected request must
     not cost us an upstream call."""
-    headers, _ = image_env
+    headers, _user_id = image_env
     calls: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

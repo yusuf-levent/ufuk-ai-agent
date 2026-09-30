@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Uuid, text
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, IdMixin, utcnow, str_enum
+from app.models.base import Base, IdMixin, str_enum, utcnow
 from app.models.enums import ImageQuality
 
 

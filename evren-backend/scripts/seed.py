@@ -62,7 +62,8 @@ DEFAULT_TIERS = {
         "price_note": "Cheapest — for short questions and quick tasks",
         "price_note_tr": "En ucuz — kısa sorular ve hızlı görevler için",
         "tooltip_title": "Qwen 3.7 Flash",
-        "tooltip_body": "En ucuz seçenek. Kısa sorular ve hızlı görevler için ideal. Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "tooltip_body": "En ucuz seçenek. Kısa sorular ve hızlı görevler için ideal. "
+        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 1,
         "tooltip_speed_level": 5,
         "tooltip_quality_level": 2,
@@ -90,7 +91,8 @@ DEFAULT_TIERS = {
         "price_note": "Cheap and fast, supports image input",
         "price_note_tr": "Ucuz ve hızlı, görsel girdi destekli",
         "tooltip_title": "DeepSeek V4.1 Flash",
-        "tooltip_body": "Ucuz ve hızlı. Görsel girdi destekli. Kısa sorular ve hızlı görevler için ideal.",
+        "tooltip_body": "Ucuz ve hızlı. Görsel girdi destekli. "
+        "Kısa sorular ve hızlı görevler için ideal.",
         "tooltip_cost_level": 1,
         "tooltip_speed_level": 5,
         "tooltip_quality_level": 3,
@@ -146,7 +148,9 @@ DEFAULT_TIERS = {
         "price_note": "Balanced, supports image input",
         "price_note_tr": "Dengeli, görsel girdi destekli",
         "tooltip_title": "Qwen 3.8 Flash",
-        "tooltip_body": "Dengeli — günlük kullanım için iyi seçim. Görsel ve video girdi destekli. Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "tooltip_body": "Dengeli — günlük kullanım için iyi seçim. "
+        "Görsel ve video girdi destekli. "
+        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 2,
         "tooltip_speed_level": 4,
         "tooltip_quality_level": 3,
@@ -176,7 +180,8 @@ DEFAULT_TIERS = {
         "price_note": "Most powerful — complex tasks, more expensive",
         "price_note_tr": "En güçlü — karmaşık görevler, daha pahalı",
         "tooltip_title": "GLM 5.3 Flash",
-        "tooltip_body": "En güçlü — karmaşık görevler, daha pahalı. Mimari kararlar, zor hata ayıklama, kritik refactor için.",
+        "tooltip_body": "En güçlü — karmaşık görevler, daha pahalı. "
+        "Mimari kararlar, zor hata ayıklama, kritik refactor için.",
         "tooltip_cost_level": 3,
         "tooltip_speed_level": 2,
         "tooltip_quality_level": 5,
@@ -204,7 +209,9 @@ DEFAULT_TIERS = {
         "price_note": "Powerful, long reasoning and image input",
         "price_note_tr": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
         "tooltip_title": "MiMo v2.6 Pro",
-        "tooltip_body": "Güçlü, uzun akıl yürütme ve görsel girdi destekli. Karmaşık görevler için. Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "tooltip_body": "Güçlü, uzun akıl yürütme ve görsel girdi destekli. "
+        "Karmaşık görevler için. "
+        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 3,
         "tooltip_speed_level": 2,
         "tooltip_quality_level": 4,
@@ -238,7 +245,8 @@ DEFAULT_TIERS = {
         "price_note": "Recommended — picks the best model for your task",
         "price_note_tr": "Önerilen — görevin için en uygun modeli seçer",
         "tooltip_title": "Auto",
-        "tooltip_body": "Önerilen — görevin için en uygun modeli otomatik seçer. Hangi modeli kullanacağına kendin karar vermek istemiyorsan bunu seç.",
+        "tooltip_body": "Önerilen — görevin için en uygun modeli otomatik seçer. "
+        "Hangi modeli kullanacağına kendin karar vermek istemiyorsan bunu seç.",
         "tooltip_cost_level": 2,
         "tooltip_speed_level": 4,
         "tooltip_quality_level": 4,

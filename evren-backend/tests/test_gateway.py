@@ -518,15 +518,39 @@ async def test_models_listing_exposes_capability_metadata(
 ) -> None:
     """The picker needs capability metadata to filter/label entries."""
     headers, _ = gateway_user
+    await create_tier_direct(
+        app,
+        alias="tooltip-test",
+        display_name="Tooltip Test",
+        upstream_model_id="dev-model-tooltip",
+        tooltip_title="Fast Model",
+        tooltip_body="A fast model for quick tasks.",
+        tooltip_cost_level=1,
+        tooltip_speed_level=5,
+        tooltip_quality_level=3,
+        tooltip_best_for="Quick tasks",
+    )
+    from app.models import Plan
+    from sqlalchemy import update
+
+    async with app.state.database.session() as session:
+        await session.execute(
+            update(Plan)
+            .where(Plan.name == "free")
+            .values(allowed_tier_aliases=["fast", "tooltip-test"])
+        )
+        await session.commit()
+
     response = await client.get("/v1/models", headers=headers)
     assert response.status_code == 200
-    fast = next(m for m in response.json()["data"] if m["id"] == "fast")
+    fast = next(m for m in response.json()["data"] if m["id"] == "tooltip-test")
     details = fast["details"]
     assert details["output_modalities"] == ["text"]
     assert details["supports_tools"] is True
     assert details["pricing_unit"] == "token"
     assert "tooltip" in details
-    assert details["tooltip"]["title"] is not None
+    assert details["tooltip"]["title"] == "Fast Model"
+    assert details["tooltip"]["cost_level"] == 1
 
 
 async def test_client_cannot_inject_models_or_plugins(

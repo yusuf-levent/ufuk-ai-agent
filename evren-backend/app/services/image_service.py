@@ -182,7 +182,7 @@ class ImageService:
                 message="Image quota exceeded for the current month",
                 type="insufficient_quota",
                 code="image_quota_exceeded",
-                extra={"remaining": quota.remaining, "requested": total},
+                extra={"remaining": str(quota.remaining), "requested": str(total)},
             )
         return total
 
@@ -198,10 +198,19 @@ class ImageService:
         image_format: str,
         image_bytes: bytes,
         credits_charged: Decimal,
+        plan: Plan | None = None,
         upstream_cost_usd: Decimal | None = None,
         latency_ms: int | None = None,
     ) -> StoredImage:
-        """Persist one generated image (binary to disk, metadata to DB)."""
+        """Persist one generated image (binary to disk, metadata to DB).
+
+        When ``plan`` is given, the quota is re-checked AFTER the upstream call
+        (optimistic concurrency): two parallel requests can both pass
+        ``consume_quota`` before either stores, so this second check catches the
+        race. ``max_concurrent_requests`` already bounds the window; this is
+        belt-and-braces. On quota breach the stored file is removed and 402
+        raised — we never silently exceed a paid quota.
+        """
         width, height = dimensions_for(quality)
         image_id = uuid.uuid4()
         ext = "jpg" if image_format == "jpeg" else image_format
@@ -209,6 +218,19 @@ class ImageService:
         absolute = self._root / relative
         absolute.parent.mkdir(parents=True, exist_ok=True)
         absolute.write_bytes(image_bytes)
+
+        # Post-write quota check (race guard).
+        if plan is not None and plan.monthly_image_quota is not None:
+            quota = await self.quota_for(user_id, plan)
+            if quota.remaining is not None and credits_charged > quota.remaining:
+                absolute.unlink(missing_ok=True)
+                raise ApiError(
+                    status_code=402,
+                    message="Image quota exceeded for the current month",
+                    type="insufficient_quota",
+                    code="image_quota_exceeded",
+                    extra={"remaining": str(quota.remaining)},
+                )
 
         async with self._db.session() as session:
             row = GeneratedImage(
@@ -255,6 +277,8 @@ class ImageService:
 
     async def delete_for_user(self, user_id: uuid.UUID) -> int:
         """Remove every image belonging to a user (account deletion)."""
+        from sqlalchemy import delete as sa_delete
+
         async with self._db.session() as session:
             rows = (
                 (
@@ -272,7 +296,7 @@ class ImageService:
                 if absolute.exists():
                     absolute.unlink()
             await session.execute(
-                GeneratedImage.__table__.delete().where(GeneratedImage.user_id == user_id)
+                sa_delete(GeneratedImage).where(GeneratedImage.user_id == user_id)
             )
             await session.commit()
         return len(rows)
@@ -282,7 +306,7 @@ def decode_image_payload(data: str) -> bytes:
     """Decode a base64 image payload from an upstream response."""
     try:
         return base64.b64decode(data, validate=True)
-    except Exception as exc:  # noqa: BLE001 - any decode failure is a bad request
+    except Exception as exc:
         raise ApiError(
             status_code=502,
             message="Upstream returned an unreadable image",

@@ -137,6 +137,7 @@ async def generate_images(
             )
         result = await service.store(
             user_id=user.id,
+            plan=active.plan,
             upstream_model_id=DEFAULT_IMAGE_MODEL,
             prompt=prompt,
             quality=quality,
