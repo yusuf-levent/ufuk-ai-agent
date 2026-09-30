@@ -67,6 +67,19 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     # internal tier is rejected outright — otherwise a user could pick the
     # hidden (often pricier) model and bypass the curated picker.
     is_internal: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    # Ordered upstream model ids tried when the primary fails (rate limit,
+    # outage, refusal). Sent as an OpenRouter `models` array. Entries must be
+    # same-or-cheaper than the primary — a fallback that costs more would let a
+    # transient error silently inflate the user's bill.
+    fallback_model_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String(200)), default=list, server_default=text("'{}'")
+    )
+    # Optional OpenRouter router plugin ("auto-router" | "pareto-router"). The
+    # gateway pins `allowed_models` to this tier's own chain and `costTier` to
+    # "low", so the router can never pick an off-list or expensive model.
+    routing_plugin: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None
+    )
     # Human-readable price/performance note shown next to the model in the
     # picker (e.g. "Ucuz ve hızlı"). Manually curated via seed/admin — never
     # derived automatically from upstream pricing.

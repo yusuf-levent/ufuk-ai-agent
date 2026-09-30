@@ -81,6 +81,8 @@ class TierResponse(BaseModel):
     pricing_unit: PricingUnit = PricingUnit.TOKEN
     max_images_per_request: int | None = None
     is_internal: bool = False
+    fallback_model_ids: list[str] = []
+    routing_plugin: str | None = None
     price_note: str | None = None
     price_note_tr: str | None = None
     speed_hint: int | None = None
@@ -105,6 +107,8 @@ class TierCreate(BaseModel):
     pricing_unit: PricingUnit = PricingUnit.TOKEN
     max_images_per_request: int | None = Field(default=None, gt=0)
     is_internal: bool = False
+    fallback_model_ids: list[str] = Field(default_factory=list)
+    routing_plugin: str | None = Field(default=None, max_length=50)
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)
@@ -128,6 +132,8 @@ class TierUpdate(BaseModel):
     pricing_unit: PricingUnit | None = None
     max_images_per_request: int | None = Field(default=None, gt=0)
     is_internal: bool | None = None
+    fallback_model_ids: list[str] | None = None
+    routing_plugin: str | None = Field(default=None, max_length=50)
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)

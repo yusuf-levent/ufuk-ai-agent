@@ -54,6 +54,11 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        # Same-or-cheaper only (live USD, 2026-09-29): ling-3.0-flash-vl is
+        # $0.083/1M in+out vs this tier's $0.16. A pricier fallback would
+        # silently inflate the bill whenever the primary errors.
+        "fallback_model_ids": ["inclusionai/ling-3.0-flash-vl"],
+        "routing_plugin": None,
         "price_note": "Cheapest — for short questions and quick tasks",
         "price_note_tr": "En ucuz — kısa sorular ve hızlı görevler için",
         "speed_hint": 5,
@@ -74,6 +79,8 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        "fallback_model_ids": ["qwen/qwen3.7-flash", "google/gemma-4-31b-it"],
+        "routing_plugin": None,
         "price_note": "Cheap and fast, supports image input",
         "price_note_tr": "Ucuz ve hızlı, görsel girdi destekli",
         "speed_hint": 5,
@@ -94,6 +101,8 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        "fallback_model_ids": ["qwen/qwen3.7-flash"],
+        "routing_plugin": None,
         "price_note": "Balanced — good choice for daily use",
         "price_note_tr": "Dengeli — günlük kullanım için iyi seçim",
         "speed_hint": 4,
@@ -114,6 +123,8 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        "fallback_model_ids": ["google/gemma-4-31b-it", "qwen/qwen3.7-flash"],
+        "routing_plugin": None,
         "price_note": "Balanced, supports image input",
         "price_note_tr": "Dengeli, görsel girdi destekli",
         "speed_hint": 4,
@@ -134,6 +145,10 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        # Same-or-cheaper only (live USD): qwen3.8-flash $0.62 vs this tier's
+        # $0.65. MiMo ($1.305) would be 2x pricier and inflate bills on errors.
+        "fallback_model_ids": ["qwen/qwen3.8-flash", "google/gemma-4-31b-it"],
+        "routing_plugin": None,
         "price_note": "Most powerful — complex tasks, more expensive",
         "price_note_tr": "En güçlü — karmaşık görevler, daha pahalı",
         "speed_hint": 2,
@@ -154,14 +169,44 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
+        "fallback_model_ids": ["z-ai/glm-5.3-flash", "qwen/qwen3.8-flash"],
+        "routing_plugin": None,
         "price_note": "Powerful, long reasoning and image input",
         "price_note_tr": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
         "speed_hint": 2,
         "quality_hint": 4,
     },
+    "auto": {
+        "display_name": "Auto",
+        "upstream_model_id": os.environ.get("SEED_AUTO_MODEL", "openrouter/auto"),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("0.195"),
+        "output_credits_per_1k_tokens": Decimal("0.611"),
+        "cache_read_multiplier": Decimal("0.1"),
+        "cache_write_multiplier": Decimal("1.0"),
+        "reasoning_multiplier": Decimal("1.0"),
+        "max_output_tokens": 16384,
+        "context_window": 1000000,
+        "output_modalities": ["text", "image"],
+        "supports_tools": True,
+        "pricing_unit": "token",
+        "is_internal": False,
+        # The router may only pick from this cheap, vision+tool capable set —
+        # `allowed_models` is pinned to it server-side (see UpstreamClient).
+        "fallback_model_ids": [
+            "qwen/qwen3.7-flash",
+            "qwen/qwen3.8-flash",
+            "google/gemma-4-31b-it",
+        ],
+        "routing_plugin": "auto-router",
+        "price_note": "Recommended — picks the best model for your task",
+        "price_note_tr": "Önerilen — görevin için en uygun modeli seçer",
+        "speed_hint": 4,
+        "quality_hint": 4,
+    },
 }
 
-ALL_TIERS = ["fast", "fast2", "balanced", "balanced2", "strong", "strong2"]
+ALL_TIERS = ["fast", "fast2", "balanced", "balanced2", "strong", "strong2", "auto"]
 
 DEFAULT_PLANS = {
     "free": {

@@ -39,6 +39,13 @@ ALLOWED_REQUEST_FIELDS = frozenset(
     }
 )
 
+# Fields the gateway constructs SERVER-SIDE and never forwards verbatim from a
+# client. `models` (fallback chain) and `plugins` (router config) name upstream
+# models directly — forwarding a client-supplied value would let a user reach
+# any OpenRouter model (including expensive frontier ones) and bypass the
+# curated tier picker. They are rebuilt from the tier's own config instead.
+SERVER_ONLY_FIELDS = frozenset({"models", "plugins"})
+
 CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
 
 
@@ -61,6 +68,39 @@ class UpstreamClient:
             transport=transport,
         )
 
+    def _apply_routing(self, payload: dict[str, Any], tier: TierView) -> None:
+        """Set `model`/`models` and `plugins` from the tier's server-side config.
+
+        Two features are built here, both driven entirely by tier config:
+
+        * **Fallback chain** — when the tier lists fallback model ids, the
+          request goes out as an OpenRouter `models` array (priority order) so
+          a rate-limited/down/refusing primary transparently fails over. The
+          response reports which model actually served, which the gateway
+          records as ``selected_model_id`` for cost attribution.
+        * **Router plugin** — ``routing_plugin`` (e.g. ``auto-router``) attaches
+          an OpenRouter router plugin. ``allowed_models`` is pinned to the
+          tier's own model + fallbacks so the router can never wander off to an
+          expensive model, and ``costTier`` is pinned to ``low`` to honour the
+          "cheap" product promise.
+        """
+        chain = [tier.upstream_model_id, *tier.fallback_model_ids]
+        if tier.fallback_model_ids:
+            payload["models"] = chain
+        else:
+            payload["model"] = tier.upstream_model_id
+
+        if tier.routing_plugin:
+            plugin: dict[str, Any] = {"id": tier.routing_plugin}
+            if tier.routing_plugin == "auto-router":
+                plugin["costTier"] = "low"
+                plugin["allowed_models"] = chain
+            elif tier.routing_plugin == "pareto-router":
+                # Cheap-but-capable coders: medium band, cheapest pick inside it.
+                plugin["minCodingScore"] = 0.33
+                plugin["allowed_models"] = chain
+            payload["plugins"] = [plugin]
+
     def _auth_headers(self) -> dict[str, str]:
         key = self._settings.upstream_api_key.get_secret_value()
         if self._settings.upstream_auth_header == "X-API-Key":
@@ -75,10 +115,15 @@ class UpstreamClient:
             for field, value in body.items()
             if field in ALLOWED_REQUEST_FIELDS and field != "max_tokens"
         }
-        dropped = sorted(set(body) - ALLOWED_REQUEST_FIELDS - {"model", "stream"})
+        dropped = sorted(
+            set(body) - ALLOWED_REQUEST_FIELDS - {"model", "stream"} - SERVER_ONLY_FIELDS
+        )
         if dropped:
             logger.info("dropped_request_fields", fields=dropped)
-        payload["model"] = tier.upstream_model_id
+        # SECURITY: any client-supplied `models` / `plugins` is discarded above;
+        # rebuild both from the tier's own config so a user can never name an
+        # arbitrary upstream model.
+        self._apply_routing(payload, tier)
         payload["max_tokens"] = max_output_tokens
         if body.get("stream") is True:
             payload["stream"] = True

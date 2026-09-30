@@ -117,3 +117,45 @@ def test_seed_pricing_ladder() -> None:
     # Pro must grant meaningfully more than Plus (the 10x price jump buys far
     # more than 10x quota headroom in practice thanks to cache + cheap models).
     assert plans["pro"]["monthly_credit_limit"] > plans["plus"]["monthly_credit_limit"] * 10
+
+
+def test_seed_has_auto_tier() -> None:
+    """The product owner wants an Auto entry in the picker."""
+    seed = _load_seed_module()
+    assert "auto" in seed.DEFAULT_TIERS
+    auto = seed.DEFAULT_TIERS["auto"]
+    assert auto["routing_plugin"] == "auto-router"
+    assert auto["fallback_model_ids"], "auto tier needs a pinned model set"
+
+
+def test_seed_fallbacks_are_same_or_cheaper() -> None:
+    """A fallback that costs MORE than its primary would let a transient error
+    silently inflate the user's bill. Guard the seed against that.
+
+    Compared in USD (per 1M in+out, live OpenRouter rates 2026-09-29) so every
+    model sits on one scale — mixing credit rates (which carry a margin) with
+    raw USD would be apples-to-oranges.
+    """
+    seed = _load_seed_module()
+    usd_per_1m = {
+        "qwen/qwen3.7-flash": 0.03 + 0.13,
+        "deepseek/deepseek-v4.1-flash": 0.30 + 1.20,
+        "google/gemma-4-31b-it": 0.09 + 0.34,
+        "qwen/qwen3.8-flash": 0.15 + 0.47,
+        "z-ai/glm-5.3-flash": 0.15 + 0.50,
+        "xiaomi/mimo-v2.6-pro": 0.435 + 0.87,
+        # Fallback-only models (not seeded tiers):
+        "inclusionai/ling-3.0-flash-vl": 0.021 + 0.062,
+    }
+    for alias, tier in seed.DEFAULT_TIERS.items():
+        if tier.get("routing_plugin"):
+            continue  # router tiers pin a candidate set, not a fail-over chain
+        primary = usd_per_1m.get(tier["upstream_model_id"])
+        assert primary is not None, f"{alias}: no price for {tier['upstream_model_id']}"
+        for fb in tier.get("fallback_model_ids", []):
+            fb_cost = usd_per_1m.get(fb)
+            assert fb_cost is not None, f"{alias}: unknown fallback {fb}"
+            assert fb_cost <= primary, (
+                f"{alias}: fallback {fb} (${fb_cost:.3f}) is pricier than "
+                f"primary (${primary:.3f}) — would inflate the bill on errors"
+            )

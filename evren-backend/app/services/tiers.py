@@ -37,6 +37,11 @@ class TierView:
     pricing_unit: str = "token"
     max_images_per_request: int | None = None
     is_internal: bool = False
+    # Ordered upstream model ids tried when the primary fails (same-or-cheaper
+    # only — a pricier fallback would silently inflate the bill on an error).
+    fallback_model_ids: tuple[str, ...] = ()
+    # Optional OpenRouter router plugin ("auto-router" | "pareto-router").
+    routing_plugin: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> TierView:
@@ -67,6 +72,12 @@ class TierView:
                 else None
             ),
             is_internal=data.get("is_internal", "false") == "true",
+            fallback_model_ids=tuple(
+                json.loads(data["fallback_model_ids"])
+                if data.get("fallback_model_ids")
+                else ()
+            ),
+            routing_plugin=data.get("routing_plugin") or None,
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -91,6 +102,8 @@ class TierView:
                 else ""
             ),
             "is_internal": "true" if self.is_internal else "false",
+            "fallback_model_ids": json.dumps(list(self.fallback_model_ids)),
+            "routing_plugin": self.routing_plugin or "",
         }
 
 
@@ -112,6 +125,8 @@ def tier_to_view(tier: ModelTier) -> TierView:
         pricing_unit=str(tier.pricing_unit),
         max_images_per_request=tier.max_images_per_request,
         is_internal=bool(tier.is_internal),
+        fallback_model_ids=tuple(tier.fallback_model_ids or ()),
+        routing_plugin=tier.routing_plugin,
     )
 
 

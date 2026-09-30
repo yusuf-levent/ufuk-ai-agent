@@ -440,6 +440,18 @@ async def test_model_not_allowed(client: AsyncClient, install_upstream, gateway_
     assert response.json()["error"]["code"] == "model_not_allowed"
 
 
+async def _allow_tiers(app: FastAPI, plan_name: str, aliases: list[str]) -> None:
+    """Put extra tier aliases on a plan's allow-list (test helper)."""
+    from app.models import Plan
+    from sqlalchemy import update
+
+    async with app.state.database.session() as session:
+        await session.execute(
+            update(Plan).where(Plan.name == plan_name).values(allowed_tier_aliases=aliases)
+        )
+        await session.commit()
+
+
 async def test_internal_tier_rejected_even_when_plan_allows_it(
     client: AsyncClient, app: FastAPI, install_upstream, gateway_user
 ) -> None:
@@ -513,6 +525,131 @@ async def test_models_listing_exposes_capability_metadata(
     assert details["output_modalities"] == ["text"]
     assert details["supports_tools"] is True
     assert details["pricing_unit"] == "token"
+
+
+async def test_client_cannot_inject_models_or_plugins(
+    client: AsyncClient, app: FastAPI, install_upstream, gateway_user
+) -> None:
+    """SECURITY: `models` and `plugins` name upstream models directly. A
+    client-supplied value would let a user reach any OpenRouter model
+    (including expensive frontier ones) and bypass the curated picker. Both
+    must be discarded and rebuilt from the tier's own config."""
+    headers, _ = gateway_user
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=completion_response())
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL,
+        json={
+            "model": "fast",
+            "messages": MESSAGES,
+            # Malicious injection attempts:
+            "models": ["anthropic/claude-opus-5.5", "openai/gpt-5.5-pro"],
+            "plugins": [{"id": "auto-router", "costTier": "max"}],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    sent = json.loads(captured[0].content)
+    # The tier has no fallbacks configured -> plain `model`, no `models` array.
+    assert "models" not in sent
+    assert sent["model"] == "dev-model-fast"
+    # No plugins either (the tier has no routing_plugin).
+    assert "plugins" not in sent
+
+
+async def test_fallback_chain_built_from_tier_config(
+    client: AsyncClient, app: FastAPI, install_upstream, gateway_user
+) -> None:
+    """A tier with fallbacks sends an OpenRouter `models` array (priority
+    order) built from ITS OWN config — never from the client."""
+    headers, _ = gateway_user
+    await create_tier_direct(
+        app,
+        alias="resilient",
+        display_name="Resilient",
+        upstream_model_id="qwen/qwen3.7-flash",
+        fallback_model_ids=["qwen/qwen3.8-flash", "google/gemma-4-31b-it"],
+    )
+    await _allow_tiers(app, "free", ["fast", "resilient"])
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=completion_response())
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL,
+        json={
+            "model": "resilient",
+            "messages": MESSAGES,
+            "models": ["anthropic/claude-opus-5.5"],  # must be ignored
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    sent = json.loads(captured[0].content)
+    assert sent["models"] == [
+        "qwen/qwen3.7-flash",
+        "qwen/qwen3.8-flash",
+        "google/gemma-4-31b-it",
+    ]
+    assert "model" not in sent
+
+
+async def test_auto_router_plugin_pinned_to_tier_models(
+    client: AsyncClient, app: FastAPI, install_upstream, gateway_user
+) -> None:
+    """The auto-router plugin must be pinned to the tier's own model chain and
+    costTier 'low' — otherwise the router could pick an expensive model and
+    break the 'cheap' product promise."""
+    headers, _ = gateway_user
+    await create_tier_direct(
+        app,
+        alias="auto",
+        display_name="Auto",
+        upstream_model_id="openrouter/auto",
+        fallback_model_ids=["qwen/qwen3.7-flash", "qwen/qwen3.8-flash"],
+        routing_plugin="auto-router",
+    )
+    await _allow_tiers(app, "free", ["fast", "auto"])
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=completion_response())
+
+    await install_upstream(handler)
+    response = await client.post(
+        CHAT_URL,
+        json={
+            "model": "auto",
+            "messages": MESSAGES,
+            "plugins": [{"id": "auto-router", "costTier": "max"}],  # must be ignored
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    sent = json.loads(captured[0].content)
+    assert sent["models"] == [
+        "openrouter/auto",
+        "qwen/qwen3.7-flash",
+        "qwen/qwen3.8-flash",
+    ]
+    plugins = sent["plugins"]
+    assert len(plugins) == 1
+    assert plugins[0]["id"] == "auto-router"
+    assert plugins[0]["costTier"] == "low"
+    assert plugins[0]["allowed_models"] == [
+        "openrouter/auto",
+        "qwen/qwen3.7-flash",
+        "qwen/qwen3.8-flash",
+    ]
 
 
 async def test_subscription_inactive(client: AsyncClient, app: FastAPI, install_upstream) -> None:

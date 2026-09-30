@@ -81,6 +81,8 @@ async def create_tier_direct(app, **overrides) -> ModelTier:
             pricing_unit=body.get("pricing_unit", "token"),
             max_images_per_request=body.get("max_images_per_request"),
             is_internal=body.get("is_internal", False),
+            fallback_model_ids=body.get("fallback_model_ids", []),
+            routing_plugin=body.get("routing_plugin"),
             price_note=body.get("price_note"),
             price_note_tr=body.get("price_note_tr"),
             speed_hint=body.get("speed_hint"),
