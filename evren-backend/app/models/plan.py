@@ -38,6 +38,12 @@ class Plan(Base, IdMixin, TimestampMixin):
     max_concurrent_requests: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=None
     )
+    # Monthly image-generation quota (count of images, NOT credits). Separate
+    # from the credit budget because image pricing units vary (image/megapixel/
+    # token) and a count is what users understand. NULL = no image generation.
+    monthly_image_quota: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
     allowed_tier_aliases: Mapped[list[str]] = mapped_column(ARRAY(String(50)), default=list)
     is_default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     stripe_price_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)

@@ -22,6 +22,7 @@ class PlanResponse(BaseModel):
     max_credits_per_window: Decimal | None = None
     budget_window_seconds: int = 300
     max_concurrent_requests: int | None = None
+    monthly_image_quota: int | None = None
     allowed_tier_aliases: list[str]
     is_default: bool
     stripe_price_id: str | None = None
@@ -38,6 +39,7 @@ class PlanCreate(BaseModel):
     max_credits_per_window: Decimal | None = Field(default=None, gt=0)
     budget_window_seconds: int = Field(default=300, gt=0)
     max_concurrent_requests: int | None = Field(default=None, gt=0)
+    monthly_image_quota: int | None = Field(default=None, ge=0)
     allowed_tier_aliases: list[str] = Field(min_length=1)
     is_default: bool = False
     stripe_price_id: str | None = Field(default=None, max_length=100)
@@ -54,6 +56,7 @@ class PlanUpdate(BaseModel):
     max_credits_per_window: Decimal | None = Field(default=None, gt=0)
     budget_window_seconds: int | None = Field(default=None, gt=0)
     max_concurrent_requests: int | None = Field(default=None, gt=0)
+    monthly_image_quota: int | None = Field(default=None, ge=0)
     allowed_tier_aliases: list[str] | None = Field(default=None, min_length=1)
     is_default: bool | None = None
     stripe_price_id: str | None = Field(default=None, max_length=100)
@@ -83,6 +86,14 @@ class TierResponse(BaseModel):
     is_internal: bool = False
     fallback_model_ids: list[str] = []
     routing_plugin: str | None = None
+    # Tooltip metadata for the model picker (ℹ️ hover card). Curated manually
+    # via seed/admin — never derived from upstream pricing.
+    tooltip_title: str | None = None
+    tooltip_body: str | None = None
+    tooltip_cost_level: int | None = None  # 1=very cheap … 5=very expensive
+    tooltip_speed_level: int | None = None  # 1=slow … 5=fast
+    tooltip_quality_level: int | None = None  # 1=basic … 5=exceptional
+    tooltip_best_for: str | None = None
     price_note: str | None = None
     price_note_tr: str | None = None
     speed_hint: int | None = None
@@ -109,6 +120,12 @@ class TierCreate(BaseModel):
     is_internal: bool = False
     fallback_model_ids: list[str] = Field(default_factory=list)
     routing_plugin: str | None = Field(default=None, max_length=50)
+    tooltip_title: str | None = Field(default=None, max_length=100)
+    tooltip_body: str | None = Field(default=None, max_length=500)
+    tooltip_cost_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_speed_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_quality_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_best_for: str | None = Field(default=None, max_length=200)
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)
@@ -134,6 +151,12 @@ class TierUpdate(BaseModel):
     is_internal: bool | None = None
     fallback_model_ids: list[str] | None = None
     routing_plugin: str | None = Field(default=None, max_length=50)
+    tooltip_title: str | None = Field(default=None, max_length=100)
+    tooltip_body: str | None = Field(default=None, max_length=500)
+    tooltip_cost_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_speed_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_quality_level: int | None = Field(default=None, ge=1, le=5)
+    tooltip_best_for: str | None = Field(default=None, max_length=200)
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)

@@ -42,6 +42,13 @@ class TierView:
     fallback_model_ids: tuple[str, ...] = ()
     # Optional OpenRouter router plugin ("auto-router" | "pareto-router").
     routing_plugin: str | None = None
+    # Tooltip metadata for the model picker (ℹ️ hover card).
+    tooltip_title: str | None = None
+    tooltip_body: str | None = None
+    tooltip_cost_level: int | None = None
+    tooltip_speed_level: int | None = None
+    tooltip_quality_level: int | None = None
+    tooltip_best_for: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> TierView:
@@ -78,6 +85,18 @@ class TierView:
                 else ()
             ),
             routing_plugin=data.get("routing_plugin") or None,
+            tooltip_title=data.get("tooltip_title") or None,
+            tooltip_body=data.get("tooltip_body") or None,
+            tooltip_cost_level=(
+                int(data["tooltip_cost_level"]) if data.get("tooltip_cost_level") else None
+            ),
+            tooltip_speed_level=(
+                int(data["tooltip_speed_level"]) if data.get("tooltip_speed_level") else None
+            ),
+            tooltip_quality_level=(
+                int(data["tooltip_quality_level"]) if data.get("tooltip_quality_level") else None
+            ),
+            tooltip_best_for=data.get("tooltip_best_for") or None,
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -104,6 +123,12 @@ class TierView:
             "is_internal": "true" if self.is_internal else "false",
             "fallback_model_ids": json.dumps(list(self.fallback_model_ids)),
             "routing_plugin": self.routing_plugin or "",
+            "tooltip_title": self.tooltip_title or "",
+            "tooltip_body": self.tooltip_body or "",
+            "tooltip_cost_level": str(self.tooltip_cost_level or ""),
+            "tooltip_speed_level": str(self.tooltip_speed_level or ""),
+            "tooltip_quality_level": str(self.tooltip_quality_level or ""),
+            "tooltip_best_for": self.tooltip_best_for or "",
         }
 
 
@@ -127,6 +152,12 @@ def tier_to_view(tier: ModelTier) -> TierView:
         is_internal=bool(tier.is_internal),
         fallback_model_ids=tuple(tier.fallback_model_ids or ()),
         routing_plugin=tier.routing_plugin,
+        tooltip_title=tier.tooltip_title,
+        tooltip_body=tier.tooltip_body,
+        tooltip_cost_level=tier.tooltip_cost_level,
+        tooltip_speed_level=tier.tooltip_speed_level,
+        tooltip_quality_level=tier.tooltip_quality_level,
+        tooltip_best_for=tier.tooltip_best_for,
     )
 
 

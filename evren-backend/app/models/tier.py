@@ -80,6 +80,14 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     routing_plugin: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
     )
+    # Tooltip metadata for the model picker (ℹ️ hover card). Curated manually
+    # via seed/admin — never derived from upstream pricing.
+    tooltip_title: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    tooltip_body: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
+    tooltip_cost_level: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    tooltip_speed_level: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    tooltip_quality_level: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    tooltip_best_for: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
     # Human-readable price/performance note shown next to the model in the
     # picker (e.g. "Ucuz ve hızlı"). Manually curated via seed/admin — never
     # derived automatically from upstream pricing.

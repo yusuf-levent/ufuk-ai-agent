@@ -804,6 +804,14 @@ async def list_models(request: Request, user: User = Depends(get_current_user)) 
                     "price_note_tr": tier.price_note_tr,
                     "speed_hint": tier.speed_hint,
                     "quality_hint": tier.quality_hint,
+                    "tooltip": {
+                        "title": tier.tooltip_title,
+                        "body": tier.tooltip_body,
+                        "cost_level": tier.tooltip_cost_level,
+                        "speed_level": tier.tooltip_speed_level,
+                        "quality_level": tier.tooltip_quality_level,
+                        "best_for": tier.tooltip_best_for,
+                    },
                 },
             }
             for tier in tiers

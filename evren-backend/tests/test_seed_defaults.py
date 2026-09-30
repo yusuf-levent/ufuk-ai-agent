@@ -159,3 +159,27 @@ def test_seed_fallbacks_are_same_or_cheaper() -> None:
                 f"{alias}: fallback {fb} (${fb_cost:.3f}) is pricier than "
                 f"primary (${primary:.3f}) — would inflate the bill on errors"
             )
+
+
+def test_seed_tiers_have_tooltip_metadata() -> None:
+    """Every user-facing tier must carry tooltip metadata for the picker's
+    ℹ️ hover card."""
+    seed = _load_seed_module()
+    for alias, tier in seed.DEFAULT_TIERS.items():
+        if tier.get("is_internal"):
+            continue
+        assert tier.get("tooltip_title"), f"{alias}: no tooltip_title"
+        assert tier.get("tooltip_body"), f"{alias}: no tooltip_body"
+        assert tier.get("tooltip_best_for"), f"{alias}: no tooltip_best_for"
+        for key in ("tooltip_cost_level", "tooltip_speed_level", "tooltip_quality_level"):
+            val = tier.get(key)
+            assert val is not None and 1 <= val <= 5, f"{alias}: bad {key}={val}"
+
+
+def test_seed_plans_have_image_quota() -> None:
+    """Every seeded plan must define an image quota (or explicitly disable
+    image generation with 0)."""
+    seed = _load_seed_module()
+    for name, plan in seed.DEFAULT_PLANS.items():
+        assert "monthly_image_quota" in plan, f"{name}: no monthly_image_quota"
+        assert plan["monthly_image_quota"] >= 0, f"{name}: negative image quota"

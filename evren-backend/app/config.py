@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     stripe_success_url: str = "ufuk://billing/success"
     stripe_cancel_url: str = "ufuk://billing/cancel"
     sentry_dsn: str | None = None
+    # Root directory for stored generated images. Relative paths are resolved
+    # against the working directory; absolute paths are used as-is.
+    images_root: str = "./data/images"
 
     @field_validator("allowed_origins", "admin_emails", mode="before")
     @classmethod

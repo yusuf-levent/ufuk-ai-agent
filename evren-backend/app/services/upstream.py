@@ -133,6 +133,33 @@ class UpstreamClient:
     async def chat(self, payload: dict[str, Any]) -> httpx.Response:
         return await self._send_with_retry(payload, stream=False)
 
+    async def generate_image(self, payload: dict[str, Any]) -> httpx.Response:
+        """POST to the upstream image-generation endpoint (non-streaming).
+
+        Uses the same auth/base-url as chat but a different path. The caller is
+        responsible for pinning `model` server-side — a client must never name
+        an image model (see SERVER_ONLY_FIELDS rationale).
+        """
+        url = f"{self._settings.upstream_base_url}/images/generations"
+        request = self._client.build_request(
+            "POST", url, json=payload, headers=self._auth_headers()
+        )
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                return await self._client.send(request, stream=False)
+            except CONNECT_ERRORS as exc:
+                last_error = exc
+                if attempt == 0:
+                    continue
+        logger.error("upstream_image_connect_failed", error=str(last_error))
+        raise ApiError(
+            status_code=502,
+            message="Cannot reach the upstream image provider",
+            type="server_error",
+            code="upstream_unavailable",
+        )
+
     async def open_stream(self, payload: dict[str, Any]) -> httpx.Response:
         """Start a streaming request and return the (unconsumed) response."""
         return await self._send_with_retry(payload, stream=True)

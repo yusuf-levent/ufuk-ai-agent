@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,7 +16,7 @@ from app.db import Database
 from app.errors import ApiError, api_error_handler, error_body
 from app.logging import configure_logging
 from app.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
-from app.routers import admin, auth, billing, gateway, health, me, plans, privacy, usage
+from app.routers import admin, auth, billing, gateway, health, images, me, plans, privacy, usage
 from app.services.circuit_breaker import CircuitBreaker
 from app.services.email import ConsoleEmailSender
 from app.services.upstream import UpstreamClient
@@ -40,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.email_sender = ConsoleEmailSender()
     app.state.upstream = UpstreamClient(settings)
     app.state.circuit_breaker = CircuitBreaker()
+    app.state.images_root = Path(settings.images_root).resolve()
 
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.request_max_body_bytes)
     app.add_middleware(
@@ -59,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(billing.router)
     app.include_router(gateway.router)
     app.include_router(usage.router)
+    app.include_router(images.router)
     app.include_router(privacy.router)
 
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]

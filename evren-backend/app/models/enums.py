@@ -38,3 +38,12 @@ class PricingUnit(StrEnum):
     TOKEN = "token"
     IMAGE = "image"
     REQUEST = "request"
+
+
+class ImageQuality(StrEnum):
+    """Resolution tier for generated images. Maps to OpenRouter's `variant`
+    pricing (1K / 2K / 4K) and drives the credit multiplier."""
+
+    STANDARD = "standard"  # 1K  (~1024px)  — 1 credit
+    HIGH = "high"          # 2K  (~2048px)  — 2 credits
+    ULTRA = "ultra"        # 4K  (~4096px)  — 4 credits

@@ -525,6 +525,8 @@ async def test_models_listing_exposes_capability_metadata(
     assert details["output_modalities"] == ["text"]
     assert details["supports_tools"] is True
     assert details["pricing_unit"] == "token"
+    assert "tooltip" in details
+    assert details["tooltip"]["title"] is not None
 
 
 async def test_client_cannot_inject_models_or_plugins(
