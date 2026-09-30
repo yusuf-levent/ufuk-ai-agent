@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import Integer, Numeric, String, text
+from sqlalchemy import ARRAY, Integer, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, IdMixin, TimestampMixin
+from app.models.base import Base, IdMixin, TimestampMixin, str_enum
+from app.models.enums import PricingUnit
 
 
 class ModelTier(Base, IdMixin, TimestampMixin):
@@ -38,6 +39,34 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     )
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     context_window: Mapped[int] = mapped_column(Integer)
+    # ---- Capability metadata (picker filtering + billing unit) ----
+    # What the model can OUTPUT (e.g. ["text"] or ["text","image"]). Distinct
+    # from input_modalities: a vision model READS images but does not generate
+    # them. Used to route image-generation requests and to keep text-only tiers
+    # out of image flows.
+    output_modalities: Mapped[list[str]] = mapped_column(
+        ARRAY(String(20)), default=lambda: ["text"], server_default=text("'{text}'")
+    )
+    # Whether the upstream model honours tool calling. Our user-facing picker
+    # requires it (agent workflows depend on tools); image-generation models
+    # mostly lack it and must stay behind the server-side tool facade.
+    supports_tools: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    # Billing unit: token (chat), image (generation), request (flat). Only
+    # TOKEN tiers use the credit-per-1k formula; the others need their own
+    # counters so we never mis-bill a generated image as tokens.
+    pricing_unit: Mapped[PricingUnit] = mapped_column(
+        str_enum(PricingUnit), default=PricingUnit.TOKEN, server_default="token"
+    )
+    # Ceiling on generated images per request (IMAGE tiers only). NULL = no
+    # per-request cap beyond the plan's image quota.
+    max_images_per_request: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
+    # Internal tiers are invisible and UNUSABLE from the public gateway: they
+    # serve hidden sub-agent / server-side work only. A user request naming an
+    # internal tier is rejected outright — otherwise a user could pick the
+    # hidden (often pricier) model and bypass the curated picker.
+    is_internal: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     # Human-readable price/performance note shown next to the model in the
     # picker (e.g. "Ucuz ve hızlı"). Manually curated via seed/admin — never
     # derived automatically from upstream pricing.

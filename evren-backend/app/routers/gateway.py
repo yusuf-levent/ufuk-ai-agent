@@ -450,6 +450,16 @@ async def chat_completions(
             type="permission_error",
             code="model_not_allowed",
         )
+    # SECURITY: internal tiers serve hidden sub-agent / server-side work only.
+    # A user request naming one is rejected outright — otherwise a user could
+    # pick the hidden (often pricier) model and bypass the curated picker.
+    if tier.is_internal:
+        raise ApiError(
+            status_code=403,
+            message=f"Model '{body.model}' is not available on your plan",
+            type="permission_error",
+            code="model_not_allowed",
+        )
 
     # Global rate limit — protects the single OpenRouter key
     global_retry = await check_rate_limit(
@@ -762,6 +772,9 @@ async def list_models(request: Request, user: User = Depends(get_current_user)) 
                     select(ModelTier)
                     .where(
                         ModelTier.enabled.is_(True),
+                        # Internal tiers are hidden sub-agent/server-side
+                        # models: never listed to users.
+                        ModelTier.is_internal.is_(False),
                         ModelTier.alias.in_(active.plan.allowed_tier_aliases),
                     )
                     .order_by(ModelTier.alias)
@@ -784,6 +797,9 @@ async def list_models(request: Request, user: User = Depends(get_current_user)) 
                     "upstream_model": tier.upstream_model_id,
                     "max_output_tokens": tier.max_output_tokens,
                     "context_window": tier.context_window,
+                    "output_modalities": list(tier.output_modalities or ["text"]),
+                    "supports_tools": bool(tier.supports_tools),
+                    "pricing_unit": str(tier.pricing_unit),
                     "price_note": tier.price_note,
                     "price_note_tr": tier.price_note_tr,
                     "speed_hint": tier.speed_hint,

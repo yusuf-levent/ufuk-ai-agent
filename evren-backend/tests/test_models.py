@@ -260,6 +260,77 @@ async def test_user_security_flag_roundtrip(app: FastAPI) -> None:
         assert loaded.security_flag_reason == "distinct_clients:6"
 
 
+async def test_model_tier_capability_fields_roundtrip(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import ModelTier
+    from app.models.enums import PricingUnit
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            ModelTier(
+                alias="img-gen",
+                display_name="Image Gen",
+                upstream_model_id="google/gemini-3.1-flash-image",
+                upstream_provider_name="openrouter",
+                input_credits_per_1k_tokens=Decimal("0.5"),
+                output_credits_per_1k_tokens=Decimal("3.0"),
+                max_output_tokens=4096,
+                context_window=32000,
+                output_modalities=["text", "image"],
+                supports_tools=False,
+                pricing_unit=PricingUnit.IMAGE,
+                max_images_per_request=4,
+                is_internal=True,
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(ModelTier).where(ModelTier.alias == "img-gen"))
+        assert loaded is not None
+        assert list(loaded.output_modalities) == ["text", "image"]
+        assert loaded.supports_tools is False
+        assert loaded.pricing_unit == PricingUnit.IMAGE
+        assert loaded.max_images_per_request == 4
+        assert loaded.is_internal is True
+
+
+async def test_model_tier_capability_defaults(app: FastAPI) -> None:
+    """Existing rows keep working: text output, tools on, token billing,
+    publicly visible."""
+    from decimal import Decimal
+
+    from app.models import ModelTier
+    from app.models.enums import PricingUnit
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            ModelTier(
+                alias="legacy",
+                display_name="Legacy",
+                upstream_model_id="m",
+                upstream_provider_name="p",
+                input_credits_per_1k_tokens=Decimal("1"),
+                output_credits_per_1k_tokens=Decimal("2"),
+                max_output_tokens=1024,
+                context_window=128000,
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(ModelTier).where(ModelTier.alias == "legacy"))
+        assert loaded is not None
+        assert list(loaded.output_modalities) == ["text"]
+        assert loaded.supports_tools is True
+        assert loaded.pricing_unit == PricingUnit.TOKEN
+        assert loaded.max_images_per_request is None
+        assert loaded.is_internal is False
+
+
 async def test_usage_event_cost_fields_roundtrip(app: FastAPI) -> None:
     """The eight cost-accounting columns persist alongside the billing data."""
     import uuid as uuid_mod

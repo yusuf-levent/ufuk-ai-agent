@@ -31,6 +31,12 @@ class TierView:
     # Relative weight on the reasoning subset of completion tokens (1.0 =
     # reasoning billed like visible output, no double billing).
     reasoning_multiplier: Decimal = Decimal("1.0")
+    # Capability metadata (defaults keep older callers working).
+    output_modalities: tuple[str, ...] = ("text",)
+    supports_tools: bool = True
+    pricing_unit: str = "token"
+    max_images_per_request: int | None = None
+    is_internal: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> TierView:
@@ -48,6 +54,19 @@ class TierView:
             reasoning_multiplier=Decimal(data.get("reasoning_multiplier", "1.0")),
             max_output_tokens=int(data["max_output_tokens"]),
             context_window=int(data["context_window"]),
+            output_modalities=tuple(
+                json.loads(data["output_modalities"])
+                if "output_modalities" in data
+                else ("text",)
+            ),
+            supports_tools=data.get("supports_tools", "true") == "true",
+            pricing_unit=data.get("pricing_unit", "token"),
+            max_images_per_request=(
+                int(data["max_images_per_request"])
+                if data.get("max_images_per_request")
+                else None
+            ),
+            is_internal=data.get("is_internal", "false") == "true",
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -63,6 +82,15 @@ class TierView:
             "reasoning_multiplier": str(self.reasoning_multiplier),
             "max_output_tokens": str(self.max_output_tokens),
             "context_window": str(self.context_window),
+            "output_modalities": json.dumps(list(self.output_modalities)),
+            "supports_tools": "true" if self.supports_tools else "false",
+            "pricing_unit": self.pricing_unit,
+            "max_images_per_request": (
+                str(self.max_images_per_request)
+                if self.max_images_per_request is not None
+                else ""
+            ),
+            "is_internal": "true" if self.is_internal else "false",
         }
 
 
@@ -79,6 +107,11 @@ def tier_to_view(tier: ModelTier) -> TierView:
         reasoning_multiplier=tier.reasoning_multiplier,
         max_output_tokens=tier.max_output_tokens,
         context_window=tier.context_window,
+        output_modalities=tuple(tier.output_modalities or ("text",)),
+        supports_tools=bool(tier.supports_tools),
+        pricing_unit=str(tier.pricing_unit),
+        max_images_per_request=tier.max_images_per_request,
+        is_internal=bool(tier.is_internal),
     )
 
 

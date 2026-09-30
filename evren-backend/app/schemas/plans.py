@@ -7,7 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import ModelTier, Plan
-from app.models.enums import SubscriptionStatus
+from app.models.enums import PricingUnit, SubscriptionStatus
 
 
 class PlanResponse(BaseModel):
@@ -76,6 +76,11 @@ class TierResponse(BaseModel):
     reasoning_multiplier: Decimal
     max_output_tokens: int
     context_window: int
+    output_modalities: list[str] = ["text"]
+    supports_tools: bool = True
+    pricing_unit: PricingUnit = PricingUnit.TOKEN
+    max_images_per_request: int | None = None
+    is_internal: bool = False
     price_note: str | None = None
     price_note_tr: str | None = None
     speed_hint: int | None = None
@@ -95,6 +100,11 @@ class TierCreate(BaseModel):
     reasoning_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
     max_output_tokens: int = Field(gt=0)
     context_window: int = Field(gt=0)
+    output_modalities: list[str] = Field(default_factory=lambda: ["text"], min_length=1)
+    supports_tools: bool = True
+    pricing_unit: PricingUnit = PricingUnit.TOKEN
+    max_images_per_request: int | None = Field(default=None, gt=0)
+    is_internal: bool = False
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)
@@ -113,6 +123,11 @@ class TierUpdate(BaseModel):
     reasoning_multiplier: Decimal | None = Field(default=None, ge=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)
+    output_modalities: list[str] | None = Field(default=None, min_length=1)
+    supports_tools: bool | None = None
+    pricing_unit: PricingUnit | None = None
+    max_images_per_request: int | None = Field(default=None, gt=0)
+    is_internal: bool | None = None
     price_note: str | None = Field(default=None, max_length=200)
     price_note_tr: str | None = Field(default=None, max_length=200)
     speed_hint: int | None = Field(default=None, ge=1, le=5)

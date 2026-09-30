@@ -223,6 +223,44 @@ def test_tier_view_reasoning_multiplier_stale_cache_defaults_neutral() -> None:
     assert restored.reasoning_multiplier == Decimal("1.0")
 
 
+def test_tier_view_capability_fields_roundtrip() -> None:
+    tier = replace(
+        make_tier(),
+        output_modalities=("text", "image"),
+        supports_tools=False,
+        pricing_unit="image",
+        max_images_per_request=4,
+        is_internal=True,
+    )
+    restored = TierView.from_dict(tier.as_dict())
+    assert restored.output_modalities == ("text", "image")
+    assert restored.supports_tools is False
+    assert restored.pricing_unit == "image"
+    assert restored.max_images_per_request == 4
+    assert restored.is_internal is True
+
+
+def test_tier_view_capability_stale_cache_defaults() -> None:
+    """Older Redis cache entries predate the capability columns; loading one
+    must fall back to safe defaults (text output, tools on, token billing,
+    public) instead of raising."""
+    data = make_tier().as_dict()
+    for key in (
+        "output_modalities",
+        "supports_tools",
+        "pricing_unit",
+        "max_images_per_request",
+        "is_internal",
+    ):
+        del data[key]
+    restored = TierView.from_dict(data)
+    assert restored.output_modalities == ("text",)
+    assert restored.supports_tools is True
+    assert restored.pricing_unit == "token"
+    assert restored.max_images_per_request is None
+    assert restored.is_internal is False
+
+
 def test_token_cost_quantized_to_six_decimals() -> None:
     tier = make_tier()
     cost = token_cost(tier, 1, 1)

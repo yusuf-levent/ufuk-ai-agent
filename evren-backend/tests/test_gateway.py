@@ -440,6 +440,81 @@ async def test_model_not_allowed(client: AsyncClient, install_upstream, gateway_
     assert response.json()["error"]["code"] == "model_not_allowed"
 
 
+async def test_internal_tier_rejected_even_when_plan_allows_it(
+    client: AsyncClient, app: FastAPI, install_upstream, gateway_user
+) -> None:
+    """SECURITY: a hidden sub-agent tier must be unusable from the public
+    gateway even if the plan technically lists it — otherwise a user could
+    name the hidden (often pricier) model and bypass the curated picker."""
+    headers, _ = gateway_user
+    await create_tier_direct(
+        app,
+        alias="hidden",
+        display_name="Hidden Subagent",
+        upstream_model_id="openai/gpt-oss-120b",
+        is_internal=True,
+    )
+    # Put the internal tier on the plan's allow-list: the guard must STILL
+    # reject it, proving the check is not merely "not in allowed_tier_aliases".
+    from app.models import Plan
+    from sqlalchemy import update
+
+    async with app.state.database.session() as session:
+        await session.execute(
+            update(Plan).where(Plan.name == "free").values(allowed_tier_aliases=["fast", "hidden"])
+        )
+        await session.commit()
+
+    await install_upstream(lambda request: httpx.Response(200, json=completion_response()))
+    response = await client.post(
+        CHAT_URL, json={"model": "hidden", "messages": MESSAGES}, headers=headers
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "model_not_allowed"
+
+
+async def test_internal_tier_hidden_from_models_listing(
+    client: AsyncClient, app: FastAPI, gateway_user
+) -> None:
+    """SECURITY: internal tiers must never appear in GET /v1/models."""
+    headers, _ = gateway_user
+    await create_tier_direct(
+        app,
+        alias="hidden",
+        display_name="Hidden Subagent",
+        upstream_model_id="openai/gpt-oss-120b",
+        is_internal=True,
+    )
+    from app.models import Plan
+    from sqlalchemy import update
+
+    async with app.state.database.session() as session:
+        await session.execute(
+            update(Plan).where(Plan.name == "free").values(allowed_tier_aliases=["fast", "hidden"])
+        )
+        await session.commit()
+
+    response = await client.get("/v1/models", headers=headers)
+    assert response.status_code == 200
+    ids = [m["id"] for m in response.json()["data"]]
+    assert "fast" in ids
+    assert "hidden" not in ids
+
+
+async def test_models_listing_exposes_capability_metadata(
+    client: AsyncClient, app: FastAPI, gateway_user
+) -> None:
+    """The picker needs capability metadata to filter/label entries."""
+    headers, _ = gateway_user
+    response = await client.get("/v1/models", headers=headers)
+    assert response.status_code == 200
+    fast = next(m for m in response.json()["data"] if m["id"] == "fast")
+    details = fast["details"]
+    assert details["output_modalities"] == ["text"]
+    assert details["supports_tools"] is True
+    assert details["pricing_unit"] == "token"
+
+
 async def test_subscription_inactive(client: AsyncClient, app: FastAPI, install_upstream) -> None:
     await create_tier_direct(app)
     headers = await register_and_login(client, "orphan@example.com")

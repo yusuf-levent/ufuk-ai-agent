@@ -49,11 +49,11 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # Tier alias -> OpenRouter model id (verified against the public listing; see
 # .env.example for the verification date). Used only with --source openrouter.
 TIER_MODEL_IDS: dict[str, str] = {
-    "fast": "deepseek/deepseek-v4-flash",
+    "fast": "qwen/qwen3.7-flash",
     "fast2": "deepseek/deepseek-v4.1-flash",
     "balanced": "google/gemma-4-31b-it",
     "balanced2": "qwen/qwen3.8-flash",
-    "strong": "z-ai/glm-5.3",
+    "strong": "z-ai/glm-5.3-flash",
     "strong2": "xiaomi/mimo-v2.6-pro",
 }
 

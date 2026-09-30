@@ -24,3 +24,17 @@ class UsageStatus(StrEnum):
     SETTLED = "settled"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class PricingUnit(StrEnum):
+    """What one billable unit of a tier costs.
+
+    TOKEN  — per-token billing (chat models; our credit formula applies).
+    IMAGE  — per generated image (image-generation models; needs its own
+             counter because `kredi = token x oran` cannot express it).
+    REQUEST — per upstream request (rare; flat fee per call).
+    """
+
+    TOKEN = "token"
+    IMAGE = "image"
+    REQUEST = "request"
