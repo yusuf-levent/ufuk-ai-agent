@@ -132,7 +132,7 @@ DEFAULT_PLANS = {
         "price_usd": Decimal("20"),
         # Set to the provider's price/product id (Stripe `price_...`, Dodo
         # `pdt_...`, Paddle `pri_...`) to make this plan purchasable.
-        "provider_price_id": None,
+        "provider_price_id": "pdt_0NohzyP0Ykg6sc4Z9kh6x",
     },
     "team": {
         "monthly_credit_limit": Decimal("50000"),

@@ -74,6 +74,11 @@ async def billing_webhook(request: Request) -> JSONResponse:
         try:
             provider.verify_webhook(payload=body, headers=request.headers, secret=webhook_secret)
         except WebhookVerificationError as exc:
+            logger.warning(
+                "billing_webhook_signature_failed",
+                provider=provider.name,
+                reason=str(exc),
+            )
             raise ApiError(
                 status_code=400,
                 message=str(exc),

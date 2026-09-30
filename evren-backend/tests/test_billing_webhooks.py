@@ -31,7 +31,7 @@ from httpx import AsyncClient
 from pydantic import SecretStr
 from tests.helpers import register_and_login
 
-DODO_SECRET = "whsec_" + "d" * 32
+DODO_SECRET = "whsec_" + base64.b64encode(b"d" * 24).decode()
 PADDLE_SECRET = "pds_" + "p" * 32
 STRIPE_SECRET = "whsec_" + "s" * 32
 
@@ -75,9 +75,9 @@ async def _seed_plan(app: FastAPI, price_id: str) -> Plan:
 
 def _sign_dodo(payload: bytes, secret: str, *, webhook_id: str = "msg_test") -> dict[str, str]:
     ts = str(int(time.time()))
-    key = secret.removeprefix("whsec_")
     signed = f"{webhook_id}.{ts}.{payload.decode()}".encode()
-    sig = base64.b64encode(hmac.new(key.encode(), signed, hashlib.sha256).digest()).decode()
+    key = base64.b64decode(secret.removeprefix("whsec_"))
+    sig = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
     return {
         "webhook-id": webhook_id,
         "webhook-timestamp": ts,

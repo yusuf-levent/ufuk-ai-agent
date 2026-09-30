@@ -142,11 +142,10 @@ class DodoProvider(PaymentProvider):
             raise WebhookVerificationError("Webhook timestamp outside tolerance")
 
         signed = f"{webhook_id}.{timestamp}.{payload.decode()}".encode()
-        # The secret may arrive with a `whsec_` prefix; strip it before use.
-        key = secret.removeprefix("whsec_")
-        expected = base64.b64encode(
-            hmac.new(key.encode(), signed, hashlib.sha256).digest()
-        ).decode()
+        # The secret arrives as `whsec_<base64>`; the HMAC key is the
+        # base64-decoded suffix (Standard Webhooks spec).
+        key = base64.b64decode(secret.removeprefix("whsec_"))
+        expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
 
         # `webhook-signature` is a space-separated list of "v1,<sig>" entries.
         candidates = [part.split(",", 1)[1] for part in signature.split(" ") if "," in part]
