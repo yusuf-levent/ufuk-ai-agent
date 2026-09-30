@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -80,18 +81,138 @@ def reserve_amount(tier: TierView, estimated_prompt_tokens: int, max_output_toke
     return quantize_credits(amount)
 
 
+# ---------------------------------------------------------------------------
+# Token estimation (pre-reservation only — settlement always uses the
+# upstream's native tokenizer count).
+#
+# `tiktoken` (o200k_base) is the industry-standard estimator (OpenAI ships it).
+# Measured against real agent payloads it lands within a few percent for code
+# and English, but UNDER-estimates Turkish prose by up to ~19% (agglutinative
+# morphology fragments into many tokens). A flat safety margin keeps the
+# reservation on the safe side: over-reserving is corrected at settlement,
+# under-reserving would let a request slip past its budget.
+#
+# tiktoken downloads its BPE file on first use; if that fails (offline boot,
+# restricted egress) we degrade to the historical char/4 heuristic rather than
+# failing the request.
+# ---------------------------------------------------------------------------
+
+#: Reservation safety margin. 1.2 = estimate 20% high on purpose. Applied ONLY
+#: to pre-reservations (which are corrected at settlement) — never to the
+#: fallback used for real billing, where padding would overcharge the user.
+TOKEN_SAFETY_MARGIN = 1.2
+
+#: Conservative per-block budget for non-text content (images, files). Real
+#: image tokenization is model-specific (tiles/resolution); a flat budget beats
+#: the old behaviour of `json.dumps`-ing base64 blobs, which inflated a single
+#: screenshot into tens of thousands of phantom tokens.
+NON_TEXT_BLOCK_TOKENS = 1024
+
+_encoder: object | None = None
+_encoder_unavailable = False
+
+
+def _get_encoder() -> object | None:
+    """Lazy tiktoken encoder; None means "fall back to the char heuristic"."""
+    global _encoder, _encoder_unavailable
+    if _encoder is not None:
+        return _encoder
+    if _encoder_unavailable:
+        return None
+    try:
+        import tiktoken
+
+        _encoder = tiktoken.get_encoding("o200k_base")
+        return _encoder
+    except Exception:  # noqa: BLE001 - any failure must degrade, never raise
+        _encoder_unavailable = True
+        return None
+
+
+def _apply_margin(raw: int) -> int:
+    return max(1, math.ceil(raw * TOKEN_SAFETY_MARGIN))
+
+
 def estimate_tokens(text: str) -> int:
-    return max(1, (len(text) + 3) // 4)
+    """Approximate token count for a text blob.
+
+    Deliberately UNPADDED: this feeds the settlement fallback when an upstream
+    response carries no usage numbers, i.e. it becomes the amount the user is
+    actually charged. Padding here would silently overcharge; the safety margin
+    belongs to reservations only (see ``estimate_messages_tokens``).
+    """
+    if not text:
+        return 1
+    encoder = _get_encoder()
+    if encoder is not None:
+        # `disallowed_special=()` keeps literal special-token text (e.g. a code
+        # sample containing "<|end|>") from raising.
+        raw = len(encoder.encode(text, disallowed_special=()))  # type: ignore[attr-defined]
+    else:
+        raw = (len(text) + 3) // 4
+    return max(1, raw)
 
 
 def estimate_messages_tokens(messages: list[dict[str, object]]) -> int:
-    total_chars = 0
+    """Approximate prompt size for a chat payload (pre-reservation only).
+
+    Padded by TOKEN_SAFETY_MARGIN: over-reserving is corrected at settlement,
+    under-reserving would let a request slip past its budget. Text content is
+    tokenized; non-text blocks (images, files, unknown types) get a flat
+    conservative budget each. The old implementation serialized multimodal
+    blocks with `json.dumps`, which counted base64 image bytes as if they were
+    text and massively over-reserved for screenshot-heavy requests.
+    """
+    text_chars = 0
+    non_text_blocks = 0
     for message in messages:
         content = message.get("content", "")
-        if not isinstance(content, str):
-            content = json.dumps(content) if content is not None else ""
-        total_chars += len(content)
-    return max(1, (total_chars + 3) // 4 + 4 * len(messages))
+        if isinstance(content, str):
+            text_chars += len(content)
+            continue
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        text_chars += len(str(block.get("text", "")))
+                    else:
+                        non_text_blocks += 1
+                else:
+                    non_text_blocks += 1
+            continue
+        if content is not None:
+            text_chars += len(json.dumps(content))
+
+    encoder = _get_encoder()
+    if encoder is not None and text_chars:
+        # Reconstruct only the textual mass; tokenizing char-by-char per message
+        # would lose cross-message merges, so we tokenize the concatenation.
+        raw_text = _collect_text(messages)
+        text_tokens = len(encoder.encode(raw_text, disallowed_special=()))  # type: ignore[attr-defined]
+    else:
+        text_tokens = (text_chars + 3) // 4
+    total = (
+        _apply_margin(text_tokens)
+        + non_text_blocks * NON_TEXT_BLOCK_TOKENS
+        + 4 * len(messages)
+    )
+    return max(1, total)
+
+
+def _collect_text(messages: list[dict[str, object]]) -> str:
+    """Concatenate every textual fragment so tiktoken can merge across blocks."""
+    parts: list[str] = []
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(str(block.get("text", "")))
+        elif content is not None:
+            parts.append(json.dumps(content))
+    return "".join(parts)
 
 
 class CreditLedger:

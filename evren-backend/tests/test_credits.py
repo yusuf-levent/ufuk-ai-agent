@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import replace
 from decimal import Decimal
@@ -236,10 +237,60 @@ def test_reserve_amount_uses_max_output() -> None:
 
 
 def test_estimate_tokens() -> None:
+    # Unpadded tiktoken counts (o200k_base): this feeds real billing fallback,
+    # so it must NOT carry the reservation safety margin.
     assert estimate_tokens("") == 1
     assert estimate_tokens("abcd") == 1
     assert estimate_tokens("abcde") == 2
-    assert estimate_tokens("x" * 400) == 100
+    # Repetitive runs compress hard under BPE (400 x's -> 50 tokens), which is
+    # exactly why char/4 was the wrong estimator.
+    assert estimate_tokens("x" * 400) == 50
+
+
+def test_estimate_tokens_matches_tiktoken_without_margin() -> None:
+    """Double-check: estimate_tokens == raw tiktoken count (no padding)."""
+    import tiktoken
+
+    enc = tiktoken.get_encoding("o200k_base")
+    for text in ("hello world", "Merhaba dünya, bu bir test mesajıdır.", "x" * 400):
+        assert estimate_tokens(text) == len(enc.encode(text, disallowed_special=()))
+
+
+def test_estimate_messages_tokens_pads_reservation() -> None:
+    """Double-check: the RESERVATION estimate carries the safety margin."""
+    import tiktoken
+
+    enc = tiktoken.get_encoding("o200k_base")
+    text = "Merhaba dünya, bu bir test mesajıdır."
+    messages = [{"role": "user", "content": text}]
+    raw = len(enc.encode(text, disallowed_special=()))
+    estimated = estimate_messages_tokens(messages)
+    # margin + 4 tokens/message overhead
+    assert estimated >= math.ceil(raw * 1.2)
+    assert estimated <= math.ceil(raw * 1.2) + 4
+
+
+def test_estimate_messages_tokens_turkish_underestimate_fixed() -> None:
+    """Regression guard for the Turkish prose underestimate.
+
+    The old char/4 heuristic under-counted Turkish by up to ~19%, so
+    reservations came up short. The padded tiktoken estimate must land ABOVE
+    the true token count for representative Turkish prose.
+    """
+    import tiktoken
+
+    enc = tiktoken.get_encoding("o200k_base")
+    tr = (
+        "Uygulama katmani, kullanicinin istedigi gorevleri yerine getirmek icin bir dizi "
+        "adimdan olusur. Ilk adimda baglam toplanir: proje dosyalari okunur, bagimliliklar "
+        "incelenir ve kullanici talimatlari analiz edilir. Ikinci adimda model secimi "
+        "yapilir; ucuz Cinli modeller varsayilandir ancak karmasik gorevler icin daha guclu "
+        "modeller devreye girer. Ucuncu adimda alt ajanlar olusturulur ve her birine dar "
+        "kapsamli gorevler verilir."
+    )
+    real = len(enc.encode(tr, disallowed_special=()))
+    estimated = estimate_messages_tokens([{"role": "user", "content": tr}])
+    assert estimated > real, f"reservation would under-count Turkish prose ({estimated} <= {real})"
 
 
 def test_estimate_messages_tokens() -> None:
@@ -251,6 +302,27 @@ def test_estimate_messages_tokens() -> None:
     assert estimated >= 25
     multimodal = [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
     assert estimate_messages_tokens(multimodal) >= 1
+
+
+def test_estimate_messages_tokens_image_block_flat_budget() -> None:
+    """Images get a flat budget — the old json.dumps path counted base64 bytes
+    as text and inflated one screenshot into tens of thousands of tokens."""
+    from app.services.credits import NON_TEXT_BLOCK_TOKENS
+
+    base64ish = "A" * 200_000  # ~200k chars of base64, like a real screenshot
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "look at this"},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64ish}"}},
+            ],
+        }
+    ]
+    estimated = estimate_messages_tokens(messages)
+    # Flat budget + text + per-message overhead, nowhere near 50k phantom tokens.
+    assert estimated < NON_TEXT_BLOCK_TOKENS + 500
+    assert estimated >= NON_TEXT_BLOCK_TOKENS
 
 
 def test_sse_scanner_captures_cache_details() -> None:

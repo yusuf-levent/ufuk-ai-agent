@@ -221,7 +221,8 @@ async def test_missing_usage_estimated(
     client: AsyncClient, app: FastAPI, install_upstream, gateway_user
 ) -> None:
     headers, user_id = gateway_user
-    body = completion_response(content="abcdefgh" * 10)
+    content = "abcdefgh" * 10
+    body = completion_response(content=content)
     body.pop("usage")
     await install_upstream(lambda request: httpx.Response(200, json=body))
 
@@ -232,7 +233,13 @@ async def test_missing_usage_estimated(
     events = await get_usage_events(app, user_id)
     assert events[0].status == UsageStatus.SETTLED
     assert events[0].estimated is True
-    assert events[0].completion_tokens == 20
+    # This fallback IS the amount the user gets charged when the upstream
+    # reports no usage, so it must equal the unpadded tokenizer count — never a
+    # padded guess. Assert against tiktoken directly rather than a magic number.
+    import tiktoken
+
+    enc = tiktoken.get_encoding("o200k_base")
+    assert events[0].completion_tokens == len(enc.encode(content, disallowed_special=()))
     assert events[0].prompt_tokens >= 1
 
 
