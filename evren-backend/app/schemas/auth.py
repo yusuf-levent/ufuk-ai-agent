@@ -12,6 +12,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=100)
+    # Contractual account-sharing deterrent: the client must record that the
+    # user accepted the terms ("you may not share your account with anyone").
+    accept_terms: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -61,3 +64,5 @@ class UserResponse(BaseModel):
     role: UserRole
     email_verified: bool
     created_at: datetime
+    terms_accepted_at: datetime | None = None
+    terms_version: str | None = None

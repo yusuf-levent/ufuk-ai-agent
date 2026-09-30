@@ -239,3 +239,31 @@ async def test_delete_me_anonymizes_usage_and_removes_user(
     assert len(events) == 1
     assert events[0].user_id is None
     assert events[0].credits_charged == Decimal("0.020000")
+
+
+async def test_delete_me_clears_all_user_redis_keys(
+    client: AsyncClient, app: FastAPI, setup_user
+) -> None:
+    """Privacy guarantee: every Redis key referencing the user is removed on
+    account deletion — including the newer budget/inflight/anomaly keys."""
+    headers, user_id = setup_user
+    redis = app.state.redis
+    await redis.set(f"credits:{user_id}:2026-09-01", "1.5")
+    await redis.set(f"rpm:{user_id}:2026-09-01", "3")
+    await redis.set(f"budget:{user_id}:1700000000", "2.5")
+    await redis.set(f"inflight:{user_id}", "1")
+    await redis.sadd(f"anomaly:{user_id}:1700000000:clients", "deadbeef")
+    await redis.set(f"anomaly:{user_id}:1700000000:count", "7")
+
+    response = await client.request("DELETE", "/me", json={"password": PASSWORD}, headers=headers)
+    assert response.status_code == 200
+
+    for key in (
+        f"credits:{user_id}:2026-09-01",
+        f"rpm:{user_id}:2026-09-01",
+        f"budget:{user_id}:1700000000",
+        f"inflight:{user_id}",
+        f"anomaly:{user_id}:1700000000:clients",
+        f"anomaly:{user_id}:1700000000:count",
+    ):
+        assert await redis.get(key) is None, f"key survived account deletion: {key}"

@@ -38,6 +38,18 @@ async def create_plan_direct(app, **overrides) -> Plan:
             monthly_credit_limit=Decimal(str(body["monthly_credit_limit"])),
             max_output_tokens_per_request=body["max_output_tokens_per_request"],
             requests_per_minute=body["requests_per_minute"],
+            max_credits_per_request=(
+                Decimal(str(body["max_credits_per_request"]))
+                if body.get("max_credits_per_request") is not None
+                else None
+            ),
+            max_credits_per_window=(
+                Decimal(str(body["max_credits_per_window"]))
+                if body.get("max_credits_per_window") is not None
+                else None
+            ),
+            budget_window_seconds=body.get("budget_window_seconds", 300),
+            max_concurrent_requests=body.get("max_concurrent_requests"),
             allowed_tier_aliases=body["allowed_tier_aliases"],
             is_default=body["is_default"],
             stripe_price_id=body.get("stripe_price_id"),

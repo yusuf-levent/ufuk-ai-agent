@@ -27,6 +27,10 @@ from app.services.rate_limiter import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+#: Revision of the terms accepted at signup. Bump when the account-sharing
+#: clause (or any other material term) changes so acceptance is auditable.
+TERMS_VERSION = "2026-09"
+
 REGISTER_IP_LIMIT = 10
 REGISTER_IP_WINDOW = 3600
 LOGIN_IP_LIMIT = 30
@@ -69,6 +73,8 @@ async def register(body: RegisterRequest, request: Request) -> UserResponse:
         password=body.password,
         display_name=body.display_name,
         admin_emails=settings.admin_emails,
+        accept_terms=body.accept_terms,
+        terms_version=TERMS_VERSION if body.accept_terms else None,
     )
     token = await auth_service.create_email_token(database, user.id, EmailTokenPurpose.VERIFY_EMAIL)
     await request.app.state.email_sender.send(

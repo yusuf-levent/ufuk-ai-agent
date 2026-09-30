@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import String, text
+from datetime import datetime
+
+from sqlalchemy import Boolean, String, text
+from sqlalchemy import DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, IdMixin, TimestampMixin, str_enum
@@ -18,6 +21,20 @@ class User(Base, IdMixin, TimestampMixin):
     )
     email_verified: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    # ---- Account-sharing deterrent (contractual + soft detection) ----
+    # When the terms were accepted and which revision. Nullable so accounts
+    # created before the clause existed stay grandfathered in — locking out
+    # paying users retroactively would be both unfair and legally shaky.
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    terms_version: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    # Soft abuse flag: set when usage patterns look like a shared account
+    # (many parallel sessions / bursts). Never auto-bans — a human reviews.
+    security_flagged: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    security_flag_reason: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, default=None
+    )
     stripe_customer_id: Mapped[str | None] = mapped_column(
         String(100), unique=True, index=True, nullable=True, default=None
     )

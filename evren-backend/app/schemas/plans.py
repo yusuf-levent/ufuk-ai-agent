@@ -21,6 +21,7 @@ class PlanResponse(BaseModel):
     max_credits_per_request: Decimal | None = None
     max_credits_per_window: Decimal | None = None
     budget_window_seconds: int = 300
+    max_concurrent_requests: int | None = None
     allowed_tier_aliases: list[str]
     is_default: bool
     stripe_price_id: str | None = None
@@ -36,6 +37,7 @@ class PlanCreate(BaseModel):
     max_credits_per_request: Decimal | None = Field(default=None, gt=0)
     max_credits_per_window: Decimal | None = Field(default=None, gt=0)
     budget_window_seconds: int = Field(default=300, gt=0)
+    max_concurrent_requests: int | None = Field(default=None, gt=0)
     allowed_tier_aliases: list[str] = Field(min_length=1)
     is_default: bool = False
     stripe_price_id: str | None = Field(default=None, max_length=100)
@@ -51,6 +53,7 @@ class PlanUpdate(BaseModel):
     max_credits_per_request: Decimal | None = Field(default=None, gt=0)
     max_credits_per_window: Decimal | None = Field(default=None, gt=0)
     budget_window_seconds: int | None = Field(default=None, gt=0)
+    max_concurrent_requests: int | None = Field(default=None, gt=0)
     allowed_tier_aliases: list[str] | None = Field(default=None, min_length=1)
     is_default: bool | None = None
     stripe_price_id: str | None = Field(default=None, max_length=100)

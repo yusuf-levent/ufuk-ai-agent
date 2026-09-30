@@ -69,3 +69,12 @@ def test_seed_plans_have_budget_kill_switch() -> None:
             f"{name}: window cap {plan['max_credits_per_window']} < "
             f"per-request cap {plan['max_credits_per_request']}"
         )
+
+
+def test_seed_plans_have_concurrency_cap() -> None:
+    """Every seeded plan must bound concurrent in-flight requests — the
+    account-sharing blast-radius limiter."""
+    seed = _load_seed_module()
+    for name, plan in seed.DEFAULT_PLANS.items():
+        assert plan["max_concurrent_requests"] is not None, f"{name}: no concurrency cap"
+        assert plan["max_concurrent_requests"] >= 1, f"{name}: unusable concurrency cap"

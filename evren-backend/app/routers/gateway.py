@@ -35,6 +35,7 @@ from app.services.credits import (
     token_cost,
 )
 from app.services.rate_limiter import check_rate_limit
+from app.services.session_guard import SessionGuard
 from app.services.upstream import normalize_upstream_error
 
 logger = structlog.get_logger(__name__)
@@ -189,6 +190,36 @@ def _extract_parent_request_id(request: Request) -> uuid.UUID | None:
         return None
 
 
+def _client_key(request: Request) -> str | None:
+    """Coarse client identity for soft anomaly detection.
+
+    Combines the client IP with the user agent. Only a salted hash of this is
+    ever stored (see SessionGuard._client_hash) — the raw value lives for the
+    duration of the request and is never persisted or logged.
+    """
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    if not ip and not user_agent:
+        return None
+    return f"{ip or ''}|{user_agent or ''}"
+
+
+async def _flag_user_for_review(database, user_id: uuid.UUID, reason: str) -> None:
+    """Set the SOFT abuse flag. Never bans — a human reviews the account."""
+    from sqlalchemy import update
+
+    from app.models import User
+
+    async with database.session() as session:
+        await session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(security_flagged=True, security_flag_reason=reason[:200])
+        )
+        await session.commit()
+    logger.info("security_flag_set", user_id=str(user_id), reason=reason)
+
+
 def _extract_completion_text(data: dict[str, Any]) -> str:
     parts: list[str] = []
     for choice in data.get("choices") or []:
@@ -268,6 +299,15 @@ async def _finalize_event(
             await ledger.release(
                 user_id=user.id, period_key=active.period_key, amount=reserved_amount
             )
+
+    # Release the in-flight slot (account-sharing concurrency cap). This is the
+    # single terminal point for every request path — success, failure, timeout
+    # and client-disconnect all funnel through here — so the slot can never
+    # leak. The flag is cleared to keep a double finalize from releasing twice.
+    guard: SessionGuard | None = getattr(request.state, "session_guard", None)
+    if guard is not None and getattr(request.state, "guard_slot_held", False):
+        request.state.guard_slot_held = False
+        await guard.release_slot(user_id=user.id, held=True)
 
 
 async def _reserve(
@@ -454,10 +494,35 @@ async def chat_completions(
         )
 
     cap = min(tier.max_output_tokens, active.plan.max_output_tokens_per_request)
-    event_id, est_prompt, reserved_amount, max_tokens = await _reserve(
-        request, user, active, tier, body.messages, body.max_tokens, cap,
-        session_id=body.session_id,
+
+    # ---- Account-sharing deterrents (layers 2 and 3) ----------------------
+    # Layer 2: concurrency cap. Acquired BEFORE reserving credits so a rejected
+    # request never touches the ledger. Released in _finalize_event, the single
+    # terminal point of every request path.
+    guard = SessionGuard(redis)
+    slot_held = await guard.acquire_slot(
+        user_id=user.id, limit=active.plan.max_concurrent_requests
     )
+    request.state.session_guard = guard
+    request.state.guard_slot_held = slot_held
+
+    # Layer 3: soft anomaly detection. Advisory only — never blocks. A pattern
+    # that looks like a shared account sets a review flag on the user row.
+    flag_reason = await guard.observe(
+        user_id=user.id, client_key=_client_key(request)
+    )
+    if flag_reason and not user.security_flagged:
+        await _flag_user_for_review(database, user.id, flag_reason)
+
+    try:
+        event_id, est_prompt, reserved_amount, max_tokens = await _reserve(
+            request, user, active, tier, body.messages, body.max_tokens, cap,
+            session_id=body.session_id,
+        )
+    except BaseException:
+        request.state.guard_slot_held = False
+        await guard.release_slot(user_id=user.id, held=slot_held)
+        raise
 
     upstream_client = request.app.state.upstream
     payload = upstream_client.sanitize_request(

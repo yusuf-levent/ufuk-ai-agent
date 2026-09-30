@@ -32,6 +32,12 @@ class Plan(Base, IdMixin, TimestampMixin):
     budget_window_seconds: Mapped[int] = mapped_column(
         Integer, default=300, server_default=text("300")
     )
+    # Concurrent in-flight LLM requests per account. Bounds blast radius when
+    # an account is shared (one holder can starve the others) and keeps a single
+    # account from monopolising the shared upstream key. NULL = unlimited.
+    max_concurrent_requests: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
     allowed_tier_aliases: Mapped[list[str]] = mapped_column(ARRAY(String(50)), default=list)
     is_default: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     stripe_price_id: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)

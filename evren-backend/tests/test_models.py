@@ -212,6 +212,52 @@ async def test_plan_budget_fields_default_unlimited(app: FastAPI) -> None:
         assert loaded.max_credits_per_request is None
         assert loaded.max_credits_per_window is None
         assert loaded.budget_window_seconds == 300
+        assert loaded.max_concurrent_requests is None
+
+
+async def test_user_terms_acceptance_roundtrip(app: FastAPI) -> None:
+    """Contractual sharing clause: acceptance is recorded and auditable."""
+    from app.models.base import utcnow
+
+    database = app.state.database
+    accepted_at = utcnow()
+    async with database.session() as session:
+        session.add(
+            User(
+                email="terms@example.com",
+                password_hash="hash",
+                terms_accepted_at=accepted_at,
+                terms_version="2026-09",
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(User).where(User.email == "terms@example.com"))
+        assert loaded is not None
+        assert loaded.terms_accepted_at is not None
+        assert loaded.terms_version == "2026-09"
+        assert loaded.security_flagged is False
+
+
+async def test_user_security_flag_roundtrip(app: FastAPI) -> None:
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            User(
+                email="flagged@example.com",
+                password_hash="hash",
+                security_flagged=True,
+                security_flag_reason="distinct_clients:6",
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(User).where(User.email == "flagged@example.com"))
+        assert loaded is not None
+        assert loaded.security_flagged is True
+        assert loaded.security_flag_reason == "distinct_clients:6"
 
 
 async def test_usage_event_cost_fields_roundtrip(app: FastAPI) -> None:

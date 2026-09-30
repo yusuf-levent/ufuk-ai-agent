@@ -53,6 +53,8 @@ async def register_user(
     password: str,
     display_name: str | None,
     admin_emails: list[str],
+    accept_terms: bool = False,
+    terms_version: str | None = None,
 ) -> User:
     normalized = normalize_email(email)
     role = UserRole.ADMIN if normalized in {e.lower() for e in admin_emails} else UserRole.USER
@@ -61,6 +63,8 @@ async def register_user(
         password_hash=hash_password(password),
         display_name=display_name,
         role=role,
+        terms_accepted_at=utcnow() if accept_terms else None,
+        terms_version=terms_version if accept_terms else None,
     )
     try:
         async with db.session() as session:

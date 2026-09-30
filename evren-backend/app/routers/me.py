@@ -39,9 +39,19 @@ async def delete_me(
         await session.execute(delete(Subscription).where(Subscription.user_id == user.id))
         await session.execute(delete(User).where(User.id == user.id))
         await session.commit()
-    user_keys = [key async for key in redis.scan_iter(match=f"credits:{user.id}:*")] + [
-        key async for key in redis.scan_iter(match=f"rpm:{user.id}:*")
-    ]
+    user_keys = [
+        key
+        async for key in redis.scan_iter(match=f"credits:{user.id}:*")
+    ] + [
+        key
+        async for key in redis.scan_iter(match=f"rpm:{user.id}:*")
+    ] + [
+        key
+        async for key in redis.scan_iter(match=f"budget:{user.id}:*")
+    ] + [
+        key
+        async for key in redis.scan_iter(match=f"anomaly:{user.id}:*")
+    ] + [f"inflight:{user.id}"]
     if user_keys:
         await redis.delete(*user_keys)
     return {"ok": True}
