@@ -294,6 +294,10 @@ async def test_client_disconnect_records_partial_usage(
         estimated: bool,
         cached_prompt_tokens: int = 0,
         cache_write_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        upstream_cost_usd=None,
+        selected_model_id: str | None = None,
+        finish_reason: str | None = None,
     ) -> None:
         finalize_calls.append(
             (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)
@@ -346,6 +350,10 @@ async def test_stream_disconnect_reasoning_counted_in_estimate(
         estimated: bool,
         cached_prompt_tokens: int = 0,
         cache_write_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        upstream_cost_usd=None,
+        selected_model_id: str | None = None,
+        finish_reason: str | None = None,
     ) -> None:
         finalize_calls.append(
             (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)
@@ -432,6 +440,10 @@ async def test_stream_generator_full_consumption(
         estimated: bool,
         cached_prompt_tokens: int = 0,
         cache_write_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        upstream_cost_usd=None,
+        selected_model_id: str | None = None,
+        finish_reason: str | None = None,
     ) -> None:
         finalize_calls.append(
             (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)

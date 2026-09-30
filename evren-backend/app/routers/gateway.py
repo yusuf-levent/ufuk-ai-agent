@@ -71,6 +71,10 @@ class SseUsageScanner:
         self.completion_tokens: int | None = None
         self.cached_prompt_tokens: int = 0
         self.cache_write_tokens: int = 0
+        self.reasoning_tokens: int = 0
+        self.upstream_cost_usd: Decimal | None = None
+        self.selected_model_id: str | None = None
+        self.finish_reason: str | None = None
         self.usage_seen = False
 
     def feed_line(self, line: bytes) -> None:
@@ -85,22 +89,34 @@ class SseUsageScanner:
             return
         if not isinstance(obj, dict):
             return
+        if isinstance(obj.get("model"), str):
+            self.selected_model_id = obj["model"]
         usage = obj.get("usage")
         if isinstance(usage, dict):
             if isinstance(usage.get("prompt_tokens"), int):
                 self.prompt_tokens = usage["prompt_tokens"]
             if isinstance(usage.get("completion_tokens"), int):
                 self.completion_tokens = usage["completion_tokens"]
+            cost = usage.get("cost")
+            if isinstance(cost, (int, float)):
+                self.upstream_cost_usd = Decimal(str(cost))
             details = usage.get("prompt_tokens_details")
             if isinstance(details, dict):
                 if isinstance(details.get("cached_tokens"), int):
                     self.cached_prompt_tokens = details["cached_tokens"]
                 if isinstance(details.get("cache_write_tokens"), int):
                     self.cache_write_tokens = details["cache_write_tokens"]
+            comp_details = usage.get("completion_tokens_details")
+            if isinstance(comp_details, dict) and isinstance(
+                comp_details.get("reasoning_tokens"), int
+            ):
+                self.reasoning_tokens = comp_details["reasoning_tokens"]
             self.usage_seen = self.prompt_tokens is not None and self.completion_tokens is not None
         for choice in obj.get("choices") or []:
             if not isinstance(choice, dict):
                 continue
+            if isinstance(choice.get("finish_reason"), str) and self.finish_reason is None:
+                self.finish_reason = choice["finish_reason"]
             delta = choice.get("delta")
             if not isinstance(delta, dict):
                 continue
@@ -146,6 +162,33 @@ def _transform_sse_line(line: bytes, alias: str) -> bytes:
     return b"data: " + json.dumps(obj, ensure_ascii=False).encode("utf-8")
 
 
+def _extract_selected_model(data: dict[str, Any], tier: tier_service.TierView) -> str:
+    """Concrete upstream model that served the request.
+
+    For plain tiers this equals ``tier.upstream_model_id``; for ``auto`` /
+    router tiers the upstream reports the model it actually picked, which is
+    what cost attribution needs.
+    """
+    model = data.get("model") if isinstance(data, dict) else None
+    return model if isinstance(model, str) and model else tier.upstream_model_id
+
+
+def _extract_parent_request_id(request: Request) -> uuid.UUID | None:
+    """Parent request id for sub-agent chain tracking.
+
+    The desktop sends ``X-Ufuk-Parent-Request-Id`` when a sub-agent call is
+    made on behalf of a user-visible request, so the full cost of one user
+    message can be summed across the whole chain.
+    """
+    raw = request.headers.get("x-ufuk-parent-request-id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError:
+        return None
+
+
 def _extract_completion_text(data: dict[str, Any]) -> str:
     parts: list[str] = []
     for choice in data.get("choices") or []:
@@ -182,6 +225,12 @@ async def _finalize_event(
     status: UsageStatus,
     cached_prompt_tokens: int = 0,
     cache_write_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    upstream_cost_usd: Decimal | None = None,
+    selected_model_id: str | None = None,
+    parent_request_id: uuid.UUID | None = None,
+    session_id: str | None = None,
+    finish_reason: str | None = None,
 ) -> None:
     actual = token_cost(
         tier,
@@ -199,6 +248,14 @@ async def _finalize_event(
         estimated=estimated,
         latency_ms=latency_ms,
         status=status,
+        upstream_cost_usd=upstream_cost_usd,
+        cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_tokens=cache_write_tokens,
+        reasoning_tokens=reasoning_tokens,
+        selected_model_id=selected_model_id,
+        parent_request_id=parent_request_id,
+        session_id=session_id,
+        finish_reason=finish_reason,
     )
     if settled:
         ledger = CreditLedger(request.app.state.redis)
@@ -220,6 +277,7 @@ async def _reserve(
     messages: list[dict[str, Any]],
     requested_max_tokens: int | None,
     cap: int,
+    session_id: str | None = None,
 ) -> tuple[uuid.UUID, int, Decimal, int]:
     database = request.app.state.database
     redis = request.app.state.redis
@@ -288,6 +346,8 @@ async def _reserve(
             credits_charged=amount,
             estimated=True,
             status=UsageStatus.RESERVED,
+            parent_request_id=_extract_parent_request_id(request),
+            session_id=session_id,
         )
         session.add(event)
         await session.commit()
@@ -394,7 +454,8 @@ async def chat_completions(
 
     cap = min(tier.max_output_tokens, active.plan.max_output_tokens_per_request)
     event_id, est_prompt, reserved_amount, max_tokens = await _reserve(
-        request, user, active, tier, body.messages, body.max_tokens, cap
+        request, user, active, tier, body.messages, body.max_tokens, cap,
+        session_id=body.session_id,
     )
 
     upstream_client = request.app.state.upstream
@@ -413,6 +474,7 @@ async def chat_completions(
             reserved_amount=reserved_amount,
             payload=payload,
             started=started,
+            session_id=body.session_id,
         )
 
     try:
@@ -484,7 +546,24 @@ async def chat_completions(
         raise error
 
     data = response.json()
+    # Capture upstream-private cost BEFORE stripping it from the client
+    # response: the real USD cost is internal margin data, never exposed.
+    upstream_cost_usd: Decimal | None = None
+    reasoning_tokens = 0
+    finish_reason: str | None = None
     if isinstance(data, dict):
+        usage_obj = data.get("usage")
+        if isinstance(usage_obj, dict):
+            cost = usage_obj.get("cost")
+            if isinstance(cost, (int, float)):
+                upstream_cost_usd = Decimal(str(cost))
+            details = usage_obj.get("completion_tokens_details")
+            if isinstance(details, dict) and isinstance(details.get("reasoning_tokens"), int):
+                reasoning_tokens = details["reasoning_tokens"]
+        for choice in data.get("choices") or []:
+            if isinstance(choice, dict) and isinstance(choice.get("finish_reason"), str):
+                finish_reason = choice["finish_reason"]
+                break
         _strip_protected_usage(data)
     usage = data.get("usage") if isinstance(data, dict) else None
     prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
@@ -517,6 +596,12 @@ async def chat_completions(
         status=UsageStatus.SETTLED,
         cached_prompt_tokens=cached_prompt_tokens,
         cache_write_tokens=cache_write_tokens,
+        reasoning_tokens=reasoning_tokens,
+        upstream_cost_usd=upstream_cost_usd,
+        selected_model_id=_extract_selected_model(data, tier),
+        parent_request_id=_extract_parent_request_id(request),
+        session_id=body.session_id,
+        finish_reason=finish_reason,
     )
     data["model"] = tier.alias
     logger.info(
@@ -539,7 +624,7 @@ async def stream_sse_events(
     tier_alias: str,
     scanner: SseUsageScanner,
     est_prompt: int,
-    finalize: Callable[[int, int, bool, int, int], Awaitable[None]],
+    finalize: Callable[..., Awaitable[None]],
 ) -> AsyncIterator[bytes]:
     """Passthrough SSE generator: rewrites the model field line by line,
     records usage when the stream ends or the client disconnects."""
@@ -557,6 +642,10 @@ async def stream_sse_events(
             not scanner.usage_seen,
             scanner.cached_prompt_tokens,
             scanner.cache_write_tokens,
+            scanner.reasoning_tokens,
+            scanner.upstream_cost_usd,
+            scanner.selected_model_id,
+            scanner.finish_reason,
         )
 
     buffer = b""
@@ -650,6 +739,7 @@ async def _stream_response(
     reserved_amount: Decimal,
     payload: dict[str, Any],
     started: float,
+    session_id: str | None = None,
 ) -> StreamingResponse:
     upstream_client = request.app.state.upstream
 
@@ -733,6 +823,10 @@ async def _stream_response(
         estimated: bool,
         cached_prompt_tokens: int = 0,
         cache_write_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        upstream_cost_usd: Decimal | None = None,
+        selected_model_id: str | None = None,
+        finish_reason: str | None = None,
     ) -> None:
         await _finalize_event(
             request,
@@ -748,6 +842,12 @@ async def _stream_response(
             status=UsageStatus.SETTLED,
             cached_prompt_tokens=cached_prompt_tokens,
             cache_write_tokens=cache_write_tokens,
+            reasoning_tokens=reasoning_tokens,
+            upstream_cost_usd=upstream_cost_usd,
+            selected_model_id=selected_model_id or tier.upstream_model_id,
+            parent_request_id=_extract_parent_request_id(request),
+            session_id=session_id,
+            finish_reason=finish_reason,
         )
 
     logger.info(

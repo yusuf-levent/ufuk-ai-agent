@@ -12,7 +12,8 @@ default is: store and log as little as possible.
 | `refresh_tokens` (SHA-256 hash only) | max 30 days, revoked on rotation/logout/password change | raw tokens are never stored |
 | `email_tokens` (SHA-256 hash only) | 24 h (verify) / 1 h (reset) | |
 | `subscriptions` (plan, period, status) | until account deletion | |
-| `usage_events` (user id, request id, tier alias, upstream model id, token counts, credits, estimated flag, status, latency) | billing records | **no prompts, no completions, no message bodies** |
+| `usage_events` (user id, request id, tier alias, upstream model id, token counts, credits, estimated flag, status, latency, real USD cost, cache/reasoning token buckets, selected model, parent request id, session id, finish reason) | billing records | **no prompts, no completions, no message bodies** |
+| `cost_daily_rollup` (day, user id, tier alias, selected model, request/token/credit/USD totals) | billing records | daily aggregate of `usage_events` for margin reporting; `user_id` anonymized on account deletion |
 | `plans`, `model_tiers` | configuration | |
 
 ## Stored in Redis (ephemeral)
@@ -22,6 +23,7 @@ default is: store and log as little as possible.
 | `rl:*` | login/register rate limiting | ≤ 1 h |
 | `rpm:{user_id}:{period}` | requests-per-minute window | 60 s |
 | `credits:{user_id}:{period}` | atomic credit reserve/settle ledger | period end + 5 days |
+| `budget:{user_id}:{window_start}` | rolling-window burst budget (sub-agent kill-switch) | window + 5 s |
 | `tier:{alias}` | tier config cache | 60 s |
 
 ## Never stored, never logged
@@ -45,9 +47,11 @@ tier alias, token counts, latency, status, request id.
 
 1. `usage_events.user_id` is set to `NULL` (rows are anonymized, not deleted, so
    aggregate billing totals stay correct — the row no longer points to any person).
+   `cost_daily_rollup.user_id` is anonymized the same way.
 2. `refresh_tokens`, `email_tokens` and `subscriptions` rows are deleted.
 3. The `users` row is deleted.
-4. Redis keys referencing the user (`credits:{user_id}:*`, `rpm:{user_id}:*`)
-   are deleted; rate-limit keys expire on their own within an hour.
+4. Redis keys referencing the user (`credits:{user_id}:*`, `rpm:{user_id}:*`,
+   `budget:{user_id}:*`) are deleted; rate-limit keys expire on their own
+   within an hour.
 
 Email addresses are only kept while the account exists.
