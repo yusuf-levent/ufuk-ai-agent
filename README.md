@@ -37,6 +37,8 @@ npm run compile               # build
 
 - `docs/IMPLEMENTATION-PLAN.md` — faz plani (Faz 0-5)
 - `docs/ARASTIRMA-RAPORU.md` — arastirma raporu
+- `docs/FIYATLANDIRMA-VE-MODEL-TASARIMI.md` — fiyat merdiveni ($10/$100/takim), model katalogu
+  (OpenRouter), cache pricing, gizli sub-agent modelleri, kacirilan riskler ve kararlar
 - `docs/workspace-context-research.md` — ADIM 6: VS Code workspace context mekanizmalari
 - `docs/auto-select-design-note.md` — otomatik model secimi tasarim notu
 
@@ -82,13 +84,78 @@ Kod degisikligi gerekmez: sadece `.env` + dashboard'daki urun/price id'lerini
 `plans.provider_price_id` alanina girin. `assign_plan()`, kredi ve quota
 mantigi butun saglayicilarda aynidir.
 
-### Sandbox/test durumu
+### Sandbox/test durumu — TAMAMLANDI (2026-09-30)
 
-- Webhook -> `assign_plan()` zinciri **test edildi**: her saglayici icin gercek
-  imza uretilip dogrulandi (`tests/test_billing_webhooks.py`).
-- Gercek checkout session olusturma **bekliyor**: test hesabi/API anahtari
-  gerektirir. Anahtar gelince `BILLING_API_KEY` + `BILLING_WEBHOOK_SECRET`
-  doldurulur, `POST /billing/checkout` ile dogrulanir. (Uydurma test yok.)
+Gerçek Dodo test-mode ortaminda uctan uca dogrulandi (gercek para YOK):
+
+- Test checkout olusturuldu (`POST /billing/checkout` -> Dodo `test.checkout.dodopayments.com`)
+- Test karti ile odeme yapildi (TRY goruntulu, Adaptive Currency aktif)
+- Webhook'lar geldi: `subscription.updated` (ignored), `subscription.active` +
+  `subscription.renewed` (`assign_plan()` -> **pro** plani atandi), `payment.succeeded` (ignored)
+- DB dogrulandi: eski plan `cancelled`, yeni `pro` aboneligi `active` (period mirasi ile)
+
+Yakalanan ve duzeltilen bug: Standard Webhooks'ta HMAC anahtari `whsec_`'den sonraki
+**base64-decoded** degerdir; ilk surumde ham string kullanilmisti. Gercek Dodo
+teslimatlari 400 alirken birim testler geciyordu (test secret'i kendimiz uretip
+kendimiz imzaliyorduk). Duzeltme: `dodo.py` -> `base64.b64decode(...)`, commit `7301c4e`.
+
+### Test ortamini yeniden kurma (gelistirme icin)
+
+Gerekli 3 sey (Dodo panosu, Test Modu):
+
+1. **API anahtari**: Gelistrici -> API Keys -> test anahtari -> `BILLING_API_KEY`
+2. **Webhook secret**: Gelistrici -> Webhooks -> endpoint -> `whsec_...` -> `BILLING_WEBHOOK_SECRET`
+3. **Urun ID**: Urunler -> abonelik urunu -> `pdt_...` (bkz. `scripts/seed.py`
+   `DEFAULT_PLANS["pro"]["provider_price_id"]`)
+
+`.env` (yalnizca `evren-backend/.env`, baska env yok):
+
+```env
+BILLING_PROVIDER=dodo
+BILLING_API_KEY=...
+BILLING_WEBHOOK_SECRET=whsec_...
+```
+
+Webhook icin localhost'a tunel gerekir (Dodo disariya istek atar):
+
+```powershell
+.\cloudflared.exe tunnel --url http://127.0.0.1:8000
+# cikan https://xxx.trycloudflare.com adresini Dodo'daki webhook URL'ine yaz:
+#   https://xxx.trycloudflare.com/billing/webhook
+```
+
+Not: quick tunnel adresleri her acilista degisir. Test kartlari:
+`4242 4242 4242 4242` / `06/32` / CVV `123` (bkz. docs.dodopayments.com/miscellaneous/testing-process).
+
+### Canliya gecis — HENUZ YAPILMADI
+
+**Dodo hesabi henuz canli moda cekilmedi.** Test modu calisiyor, canli odeme alinmiyor.
+Canliya gecmek icin sirasiyla:
+
+1. Dodo panosunda **Dogrulama (KYC)** tamamlanacak — kimlik + banka dogrulamasi
+   incelemede (72 saat surebiliyor). Reddedilirse sebebiyle birlikte tekrar denenir.
+2. Dogrulama onaylaninca Dodo panosundan **Live Mode** acilir, **canli API anahtari**
+   + **canli webhook secret** alinir.
+3. `.env`'de sadece 3 satir degisir (KOD DEGISIKLIGI GEREKMEZ):
+
+   ```env
+   BILLING_PROVIDER=dodo_live
+   BILLING_API_KEY=<canli anahtar>
+   BILLING_WEBHOOK_SECRET=<canli whsec_>
+   ```
+
+4. Webhook URL'i **kalici** bir adrese tasinir (tunel degil; ornek: api.ufuk.dev/billing/webhook).
+5. Dodo'da **canli urun** olusturulur (test urunu canliya kopyalanabilir), yeni
+   `pdt_...` `scripts/seed.py`'deki `provider_price_id` alanina yazilir.
+6. Canli urunun **fiyat para birimi** kararlastirilir: USD (varsayilan) veya TRY.
+   Dodo Adaptive Currency sayesinde Turkiye musterileri zaten TL gorur; sabit TRY
+   fiyat istenirse Localized Pricing kullanilir.
+7. Smoke test: kendi kartiyla kucuk tutarli bir canli odeme yapilir, webhook ->
+   `assign_plan()` zinciri son kez dogrulanir, ardindan iade edilir.
+
+Guvenlik notlari: canli anahtarlar asla commit edilmez (`.env` gitignore'da);
+webhook secret rotasyonu eski sirri 24 saat gecerli tutar; `BILLING_PROVIDER`
+`dodo` (test) ile `dodo_live` arasinda kod degisikligi olmadan gecis yapilir.
 
 Masaustu tarafinda: hesap ayarlari diyalogunda plan listesi + "Choose" (Checkout)
 + "Manage Billing" (Portal) butonlari; status bar'da kredi gostergesi; chat input'ta
