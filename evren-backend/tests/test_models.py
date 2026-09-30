@@ -313,7 +313,6 @@ async def test_cost_daily_rollup_upsert_accumulates(app: FastAPI) -> None:
     import uuid as uuid_mod
     from decimal import Decimal
 
-    from app.models import CostDailyRollup
     from app.services import usage_service
 
     database = app.state.database
@@ -375,7 +374,6 @@ async def test_cost_daily_rollup_separates_models(app: FastAPI) -> None:
     import uuid as uuid_mod
     from decimal import Decimal
 
-    from app.models import CostDailyRollup
     from app.services import usage_service
 
     database = app.state.database
@@ -419,7 +417,6 @@ async def test_settle_is_idempotent_no_double_rollup(app: FastAPI) -> None:
     import uuid as uuid_mod
     from decimal import Decimal
 
-    from app.models import CostDailyRollup
     from app.services import usage_service
 
     database = app.state.database

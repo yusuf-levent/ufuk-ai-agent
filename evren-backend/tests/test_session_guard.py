@@ -17,9 +17,9 @@ from app.errors import ApiError
 from app.services.session_guard import SessionGuard
 from fastapi import FastAPI
 from httpx import AsyncClient
+from tests.helpers import register_and_login
 from tests.test_gateway import completion_response
 from tests.test_plans_admin import create_plan_direct, create_tier_direct
-from tests.helpers import register_and_login
 
 
 async def test_acquire_slot_no_limit_means_no_tracking(app: FastAPI) -> None:
@@ -301,9 +301,8 @@ async def test_gateway_releases_slot_after_upstream_failure(
 
 
 async def test_register_records_terms_acceptance(client: AsyncClient, app: FastAPI) -> None:
-    from sqlalchemy import select
-
     from app.models import User
+    from sqlalchemy import select
 
     response = await client.post(
         "/auth/register",

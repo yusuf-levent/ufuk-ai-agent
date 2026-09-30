@@ -15,6 +15,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.db import Database
 from app.dependencies import get_current_user
 from app.errors import ApiError
 from app.models import UsageEvent, User
@@ -204,7 +205,7 @@ def _client_key(request: Request) -> str | None:
     return f"{ip or ''}|{user_agent or ''}"
 
 
-async def _flag_user_for_review(database, user_id: uuid.UUID, reason: str) -> None:
+async def _flag_user_for_review(database: Database, user_id: uuid.UUID, reason: str) -> None:
     """Set the SOFT abuse flag. Never bans — a human reviews the account."""
     from sqlalchemy import update
 

@@ -124,7 +124,7 @@ def _get_encoder() -> object | None:
 
         _encoder = tiktoken.get_encoding("o200k_base")
         return _encoder
-    except Exception:  # noqa: BLE001 - any failure must degrade, never raise
+    except Exception:
         _encoder_unavailable = True
         return None
 

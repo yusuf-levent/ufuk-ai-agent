@@ -159,7 +159,7 @@ async def _rollup_settled_event(
     if event is None:
         return
     day = event.created_at.date()
-    stmt = pg_insert(CostDailyRollup.__table__).values(
+    stmt = pg_insert(CostDailyRollup).values(
         id=uuid.uuid4(),
         day=day,
         user_id=event.user_id,
