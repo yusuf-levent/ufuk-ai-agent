@@ -18,6 +18,9 @@ class PlanResponse(BaseModel):
     monthly_credit_limit: Decimal
     max_output_tokens_per_request: int
     requests_per_minute: int
+    max_credits_per_request: Decimal | None = None
+    max_credits_per_window: Decimal | None = None
+    budget_window_seconds: int = 300
     allowed_tier_aliases: list[str]
     is_default: bool
     stripe_price_id: str | None = None
@@ -30,6 +33,9 @@ class PlanCreate(BaseModel):
     monthly_credit_limit: Decimal = Field(gt=0)
     max_output_tokens_per_request: int = Field(gt=0)
     requests_per_minute: int = Field(gt=0)
+    max_credits_per_request: Decimal | None = Field(default=None, gt=0)
+    max_credits_per_window: Decimal | None = Field(default=None, gt=0)
+    budget_window_seconds: int = Field(default=300, gt=0)
     allowed_tier_aliases: list[str] = Field(min_length=1)
     is_default: bool = False
     stripe_price_id: str | None = Field(default=None, max_length=100)
@@ -42,6 +48,9 @@ class PlanUpdate(BaseModel):
     monthly_credit_limit: Decimal | None = Field(default=None, gt=0)
     max_output_tokens_per_request: int | None = Field(default=None, gt=0)
     requests_per_minute: int | None = Field(default=None, gt=0)
+    max_credits_per_request: Decimal | None = Field(default=None, gt=0)
+    max_credits_per_window: Decimal | None = Field(default=None, gt=0)
+    budget_window_seconds: int | None = Field(default=None, gt=0)
     allowed_tier_aliases: list[str] | None = Field(default=None, min_length=1)
     is_default: bool | None = None
     stripe_price_id: str | None = Field(default=None, max_length=100)

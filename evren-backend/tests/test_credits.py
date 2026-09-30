@@ -272,3 +272,82 @@ async def test_ensure_ledger_synced_rebuilds_from_db(app: FastAPI) -> None:
 def test_quantize_credits_rounds_half_up() -> None:
     assert quantize_credits(Decimal("1.0000005")) == Decimal("1.000001")
     assert quantize_credits(Decimal("1.0000004")) == Decimal("1.000000")
+
+
+# ---------------------------------------------------------------------------
+# BudgetLedger — the sub-agent cost kill-switch (rolling-window budget)
+# ---------------------------------------------------------------------------
+
+
+async def test_budget_ledger_accumulates_within_window(app: FastAPI) -> None:
+    from app.services.credits import BudgetLedger
+
+    ledger = BudgetLedger(app.state.redis)
+    user_id = uuid.uuid4()
+    now = 1_000_000.0
+
+    await ledger.consume(
+        user_id=user_id, amount=Decimal("5"), limit=Decimal("10"),
+        window_seconds=300, now=now,
+    )
+    await ledger.consume(
+        user_id=user_id, amount=Decimal("4"), limit=Decimal("10"),
+        window_seconds=300, now=now + 10,
+    )
+    assert await ledger.used(user_id, 300, now=now + 20) == Decimal("9.000000")
+
+
+async def test_budget_ledger_blocks_when_window_exceeded(app: FastAPI) -> None:
+    from app.services.credits import BudgetLedger
+
+    ledger = BudgetLedger(app.state.redis)
+    user_id = uuid.uuid4()
+    now = 2_000_000.0
+
+    await ledger.consume(
+        user_id=user_id, amount=Decimal("8"), limit=Decimal("10"),
+        window_seconds=300, now=now,
+    )
+    with pytest.raises(ApiError) as excinfo:
+        await ledger.consume(
+            user_id=user_id, amount=Decimal("3"), limit=Decimal("10"),
+            window_seconds=300, now=now + 5,
+        )
+    assert excinfo.value.status_code == 402
+    assert excinfo.value.code == "window_budget_exceeded"
+    # The rejected amount must be rolled back — no phantom burn.
+    assert await ledger.used(user_id, 300, now=now + 10) == Decimal("8.000000")
+
+
+async def test_budget_ledger_resets_across_windows(app: FastAPI) -> None:
+    from app.services.credits import BudgetLedger
+
+    ledger = BudgetLedger(app.state.redis)
+    user_id = uuid.uuid4()
+    now = 3_000_000.0
+
+    await ledger.consume(
+        user_id=user_id, amount=Decimal("10"), limit=Decimal("10"),
+        window_seconds=300, now=now,
+    )
+    # Next window: budget is fresh again.
+    await ledger.consume(
+        user_id=user_id, amount=Decimal("10"), limit=Decimal("10"),
+        window_seconds=300, now=now + 300,
+    )
+    assert await ledger.used(user_id, 300, now=now + 310) == Decimal("10.000000")
+
+
+def test_budget_window_start_alignment() -> None:
+    from app.services.credits import BudgetLedger
+
+    # 1_000_000 // 300 = 3333 -> window starts at 999_900
+    assert BudgetLedger.window_start(300, now=1_000_000.0) == 999_900
+    # 1_000_100 // 300 = 3333 -> same window
+    assert BudgetLedger.window_start(300, now=1_000_100.0) == 999_900
+    # 1_000_200 // 300 = 3334 -> next window
+    assert BudgetLedger.window_start(300, now=1_000_200.0) == 1_000_200
+    # Two moments inside the same window share the key.
+    assert BudgetLedger.window_start(300, now=1_000_000.0) == BudgetLedger.window_start(
+        300, now=1_000_100.0
+    )

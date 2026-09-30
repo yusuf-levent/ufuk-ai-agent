@@ -125,3 +125,58 @@ async def test_model_tier_cache_multipliers_default_neutral(app: FastAPI) -> Non
         assert loaded is not None
         assert loaded.cache_read_multiplier == Decimal("1.0")
         assert loaded.cache_write_multiplier == Decimal("1.0")
+
+
+async def test_plan_budget_fields_roundtrip(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import Plan
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            Plan(
+                name="budget-plan",
+                monthly_credit_limit=Decimal("1000"),
+                max_output_tokens_per_request=2048,
+                requests_per_minute=60,
+                max_credits_per_request=Decimal("50"),
+                max_credits_per_window=Decimal("200"),
+                budget_window_seconds=600,
+                allowed_tier_aliases=["fast"],
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(Plan).where(Plan.name == "budget-plan"))
+        assert loaded is not None
+        assert loaded.max_credits_per_request == Decimal("50")
+        assert loaded.max_credits_per_window == Decimal("200")
+        assert loaded.budget_window_seconds == 600
+
+
+async def test_plan_budget_fields_default_unlimited(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import Plan
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            Plan(
+                name="no-budget-plan",
+                monthly_credit_limit=Decimal("1000"),
+                max_output_tokens_per_request=2048,
+                requests_per_minute=60,
+                allowed_tier_aliases=["fast"],
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(select(Plan).where(Plan.name == "no-budget-plan"))
+        assert loaded is not None
+        assert loaded.max_credits_per_request is None
+        assert loaded.max_credits_per_window is None
+        assert loaded.budget_window_seconds == 300

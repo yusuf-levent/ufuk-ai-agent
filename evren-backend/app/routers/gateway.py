@@ -26,6 +26,7 @@ from app.services import tiers as tier_service
 from app.services import usage_service
 from app.services.circuit_breaker import CircuitBreaker
 from app.services.credits import (
+    BudgetLedger,
     CreditLedger,
     ensure_ledger_synced,
     estimate_messages_tokens,
@@ -227,6 +228,18 @@ async def _reserve(
     est_prompt = estimate_messages_tokens(messages)
     amount = reserve_amount(tier, est_prompt, max_tokens)
 
+    # Per-request ceiling: one LLM call may never reserve more than this, so a
+    # single runaway prompt (huge context + huge max_tokens) cannot drain the
+    # whole period in one shot.
+    per_request_cap = active.plan.max_credits_per_request
+    if per_request_cap is not None and amount > per_request_cap:
+        raise ApiError(
+            status_code=402,
+            message="Single request exceeds the per-request credit budget",
+            type="insufficient_quota",
+            code="request_budget_exceeded",
+        )
+
     ledger = CreditLedger(redis)
     ttl = int((active.period_end - utcnow()).total_seconds()) + LEDGER_TTL_GRACE_SECONDS
     await ensure_ledger_synced(
@@ -244,6 +257,26 @@ async def _reserve(
         amount=amount,
         limit=active.plan.monthly_credit_limit,
     )
+
+    # Rolling-window ceiling: the sub-agent cost kill-switch. A nested
+    # sub-agent chain fires many calls in a burst; each is individually under
+    # the per-request cap, so only a window budget stops the blow-up.
+    window_cap = active.plan.max_credits_per_window
+    if window_cap is not None:
+        try:
+            await BudgetLedger(redis).consume(
+                user_id=user.id,
+                amount=amount,
+                limit=window_cap,
+                window_seconds=active.plan.budget_window_seconds,
+            )
+        except ApiError:
+            # Roll the period ledger back so the rejected request leaves no
+            # phantom reservation behind.
+            await ledger.release(
+                user_id=user.id, period_key=active.period_key, amount=amount
+            )
+            raise
 
     request_id = uuid.uuid4()
     async with database.session() as session:

@@ -154,3 +154,63 @@ async def ensure_ledger_synced(
     value = quantize_credits(Decimal(total or 0))
     await redis.set(key, str(value), ex=ttl_seconds)
     return value
+
+
+class BudgetLedger:
+    """Rolling-window credit budget — the sub-agent cost kill-switch.
+
+    A nested sub-agent chain fires many LLM calls in a short burst. Each call
+    is individually under ``max_credits_per_request``, so only a *window*
+    budget stops the exponential blow-up. Fixed windows keyed by
+    ``floor(now / window_seconds)``; the counter expires shortly after the
+    window ends so memory stays bounded.
+    """
+
+    def __init__(self, redis: Redis) -> None:
+        self._redis = redis
+
+    @staticmethod
+    def key(user_id: uuid.UUID, window_start: int) -> str:
+        return f"budget:{user_id}:{window_start}"
+
+    @staticmethod
+    def window_start(window_seconds: int, *, now: float | None = None) -> int:
+        import time
+
+        moment = time.time() if now is None else now
+        return int(moment // window_seconds) * window_seconds
+
+    async def consume(
+        self,
+        *,
+        user_id: uuid.UUID,
+        amount: Decimal,
+        limit: Decimal,
+        window_seconds: int,
+        now: float | None = None,
+    ) -> None:
+        """Atomically add ``amount`` to the current window; roll back and raise
+        when the window budget would be exceeded."""
+        start = self.window_start(window_seconds, now=now)
+        key = self.key(user_id, start)
+        value = Decimal(str(await self._redis.incrbyfloat(key, float(amount))))
+        # Expire just after the window rolls over so a quiet user does not leak
+        # keys; +5s grace avoids racing the boundary.
+        await self._redis.expire(key, window_seconds + 5)
+        if value > limit:
+            await self._redis.incrbyfloat(key, -float(amount))
+            raise ApiError(
+                status_code=402,
+                message="Burst budget exceeded — too many credits in a short window",
+                type="insufficient_quota",
+                code="window_budget_exceeded",
+            )
+
+    async def used(
+        self, user_id: uuid.UUID, window_seconds: int, *, now: float | None = None
+    ) -> Decimal:
+        start = self.window_start(window_seconds, now=now)
+        value = await self._redis.get(self.key(user_id, start))
+        if value is None:
+            return Decimal(0)
+        return quantize_credits(Decimal(str(value)))
