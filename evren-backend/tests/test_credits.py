@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -30,12 +31,103 @@ def make_tier() -> TierView:
     )
 
 
+def test_tier_view_cache_multipliers_default_neutral() -> None:
+    tier = make_tier()
+    assert tier.cache_read_multiplier == Decimal("1.0")
+    assert tier.cache_write_multiplier == Decimal("1.0")
+
+
+def test_tier_view_cache_multipliers_roundtrip() -> None:
+    tier = replace(
+        make_tier(),
+        cache_read_multiplier=Decimal("0.1"),
+        cache_write_multiplier=Decimal("1.25"),
+    )
+    restored = TierView.from_dict(tier.as_dict())
+    assert restored.cache_read_multiplier == Decimal("0.1")
+    assert restored.cache_write_multiplier == Decimal("1.25")
+
+
+def test_tier_view_from_dict_tolerates_stale_cache_entry() -> None:
+    """Older Redis cache entries predate the cache multipliers; loading one
+    must fall back to neutral values instead of raising."""
+    data = make_tier().as_dict()
+    del data["cache_read_multiplier"]
+    del data["cache_write_multiplier"]
+    restored = TierView.from_dict(data)
+    assert restored.cache_read_multiplier == Decimal("1.0")
+    assert restored.cache_write_multiplier == Decimal("1.0")
+
+
 def test_token_cost_math() -> None:
     tier = make_tier()
     # 1000 prompt tokens * 1/1000 + 500 completion * 2/1000 = 1 + 1 = 2
     assert token_cost(tier, 1000, 500) == Decimal("2.000000")
     # fractional: 123 prompt * 1/1000 + 45 * 2/1000
     assert token_cost(tier, 123, 45) == Decimal("0.213000")
+
+
+def test_token_cost_without_cache_info_is_unchanged() -> None:
+    """A provider that reports no cache buckets bills the whole prompt at the
+    plain input rate (historical behaviour)."""
+    tier = make_tier()
+    assert token_cost(tier, 1000, 500) == token_cost(
+        tier, 1000, 500, cached_prompt_tokens=0, cache_write_tokens=0
+    )
+
+
+def test_token_cost_cached_reads_use_read_multiplier() -> None:
+    tier = replace(make_tier(), cache_read_multiplier=Decimal("0.1"))
+    # 1000 prompt: 500 cached @ 0.1x + 500 fresh @ 1x
+    #   = (500 * 1 * 0.1 + 500 * 1) / 1000 = 0.55
+    # completion 500 * 2/1000 = 1  -> total 1.55
+    cost = token_cost(tier, 1000, 500, cached_prompt_tokens=500)
+    assert cost == Decimal("1.550000")
+
+
+def test_token_cost_cache_writes_use_write_multiplier() -> None:
+    tier = replace(make_tier(), cache_write_multiplier=Decimal("1.25"))
+    # 1000 prompt: 200 written @ 1.25x + 800 fresh @ 1x
+    #   = (200 * 1 * 1.25 + 800 * 1) / 1000 = 1.05
+    # completion 500 * 2/1000 = 1  -> total 2.05
+    cost = token_cost(tier, 1000, 500, cache_write_tokens=200)
+    assert cost == Decimal("2.050000")
+
+
+def test_token_cost_all_three_buckets() -> None:
+    tier = replace(
+        make_tier(),
+        cache_read_multiplier=Decimal("0.1"),
+        cache_write_multiplier=Decimal("1.25"),
+    )
+    # 1000 prompt: 300 cached @ 0.1x + 200 written @ 1.25x + 500 fresh @ 1x
+    #   = (300 * 0.1 + 200 * 1.25 + 500 * 1) / 1000 = 0.78
+    # completion 500 * 2/1000 = 1  -> total 1.78
+    cost = token_cost(
+        tier, 1000, 500, cached_prompt_tokens=300, cache_write_tokens=200
+    )
+    assert cost == Decimal("1.780000")
+
+
+def test_token_cost_buckets_clamped_to_prompt_total() -> None:
+    """Over-reported cache buckets must never bill more than the prompt total."""
+    tier = replace(
+        make_tier(),
+        cache_read_multiplier=Decimal("0.1"),
+        cache_write_multiplier=Decimal("1.25"),
+    )
+    # cached=800 + written=800 > prompt=1000 -> clamp: cached=800, written=200
+    cost = token_cost(
+        tier, 1000, 500, cached_prompt_tokens=800, cache_write_tokens=800
+    )
+    expected = token_cost(tier, 1000, 500, cached_prompt_tokens=800, cache_write_tokens=200)
+    assert cost == expected
+
+
+def test_token_cost_negative_buckets_treated_as_zero() -> None:
+    tier = make_tier()
+    cost = token_cost(tier, 1000, 500, cached_prompt_tokens=-5, cache_write_tokens=-5)
+    assert cost == token_cost(tier, 1000, 500)
 
 
 def test_token_cost_quantized_to_six_decimals() -> None:
@@ -67,6 +159,30 @@ def test_estimate_messages_tokens() -> None:
     assert estimated >= 25
     multimodal = [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
     assert estimate_messages_tokens(multimodal) >= 1
+
+
+def test_sse_scanner_captures_cache_details() -> None:
+    from app.routers.gateway import SseUsageScanner
+
+    scanner = SseUsageScanner()
+    scanner.feed_line(
+        b'data: {"usage": {"prompt_tokens": 100, "completion_tokens": 10, '
+        b'"prompt_tokens_details": {"cached_tokens": 60, "cache_write_tokens": 20}}}'
+    )
+    assert scanner.prompt_tokens == 100
+    assert scanner.completion_tokens == 10
+    assert scanner.cached_prompt_tokens == 60
+    assert scanner.cache_write_tokens == 20
+    assert scanner.usage_seen is True
+
+
+def test_sse_scanner_cache_details_default_zero() -> None:
+    from app.routers.gateway import SseUsageScanner
+
+    scanner = SseUsageScanner()
+    scanner.feed_line(b'data: {"usage": {"prompt_tokens": 5, "completion_tokens": 2}}')
+    assert scanner.cached_prompt_tokens == 0
+    assert scanner.cache_write_tokens == 0
 
 
 async def test_ledger_reserve_and_quota(app: FastAPI) -> None:

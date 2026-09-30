@@ -42,6 +42,22 @@ def completion_response(
     }
 
 
+def cached_completion_response(
+    *, prompt: int = 100, completion: int = 10, cached: int = 60, written: int = 20
+) -> dict:
+    return completion_response(
+        usage={
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+            "prompt_tokens_details": {
+                "cached_tokens": cached,
+                "cache_write_tokens": written,
+            },
+        }
+    )
+
+
 @pytest.fixture
 async def install_upstream(app: FastAPI):
     created: list[UpstreamClient] = []

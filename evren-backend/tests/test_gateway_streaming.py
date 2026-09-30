@@ -286,10 +286,18 @@ async def test_client_disconnect_records_partial_usage(
     )
     assert response.status_code == 200
 
-    finalize_calls: list[tuple[int, int, bool]] = []
+    finalize_calls: list[tuple[int, int, bool, int, int]] = []
 
-    async def finalize(prompt_tokens: int, completion_tokens: int, estimated: bool) -> None:
-        finalize_calls.append((prompt_tokens, completion_tokens, estimated))
+    async def finalize(
+        prompt_tokens: int,
+        completion_tokens: int,
+        estimated: bool,
+        cached_prompt_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
+        finalize_calls.append(
+            (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)
+        )
 
     scanner = SseUsageScanner()
     generator = stream_sse_events(
@@ -302,7 +310,7 @@ async def test_client_disconnect_records_partial_usage(
     await generator.aclose()
 
     assert len(finalize_calls) == 1
-    prompt_tokens, completion_tokens, estimated = finalize_calls[0]
+    prompt_tokens, completion_tokens, estimated, _cached, _written = finalize_calls[0]
     assert estimated is True
     assert prompt_tokens == 25
     assert completion_tokens == 1  # only "Hel" (3 chars) was streamed
@@ -330,10 +338,18 @@ async def test_stream_disconnect_reasoning_counted_in_estimate(
         {"model": "dev-model-fast", "messages": MESSAGES, "stream": True}
     )
 
-    finalize_calls: list[tuple[int, int, bool]] = []
+    finalize_calls: list[tuple[int, int, bool, int, int]] = []
 
-    async def finalize(prompt_tokens: int, completion_tokens: int, estimated: bool) -> None:
-        finalize_calls.append((prompt_tokens, completion_tokens, estimated))
+    async def finalize(
+        prompt_tokens: int,
+        completion_tokens: int,
+        estimated: bool,
+        cached_prompt_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
+        finalize_calls.append(
+            (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)
+        )
 
     scanner = SseUsageScanner()
     generator = stream_sse_events(
@@ -408,10 +424,18 @@ async def test_stream_generator_full_consumption(
         {"model": "dev-model-fast", "messages": MESSAGES, "stream": True}
     )
 
-    finalize_calls: list[tuple[int, int, bool]] = []
+    finalize_calls: list[tuple[int, int, bool, int, int]] = []
 
-    async def finalize(prompt_tokens: int, completion_tokens: int, estimated: bool) -> None:
-        finalize_calls.append((prompt_tokens, completion_tokens, estimated))
+    async def finalize(
+        prompt_tokens: int,
+        completion_tokens: int,
+        estimated: bool,
+        cached_prompt_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
+        finalize_calls.append(
+            (prompt_tokens, completion_tokens, estimated, cached_prompt_tokens, cache_write_tokens)
+        )
 
     scanner = SseUsageScanner()
     generator = stream_sse_events(
@@ -420,7 +444,7 @@ async def test_stream_generator_full_consumption(
     output = b"".join([chunk async for chunk in generator])
 
     assert b"[DONE]" in output
-    assert finalize_calls == [(7, 1, False)]
+    assert finalize_calls == [(7, 1, False, 0, 0)]
 
 
 def test_transform_sse_line_rewrites_model() -> None:

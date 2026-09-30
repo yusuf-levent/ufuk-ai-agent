@@ -63,3 +63,65 @@ async def test_usage_event_request_id_unique(app: FastAPI) -> None:
         async with database.session() as session:
             session.add(_usage_event(request_id))
             await session.commit()
+
+
+async def test_model_tier_cache_multipliers_roundtrip(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import ModelTier
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            ModelTier(
+                alias="cache-test",
+                display_name="Cache Test",
+                upstream_model_id="model-x",
+                upstream_provider_name="provider",
+                input_credits_per_1k_tokens=Decimal("1.0"),
+                output_credits_per_1k_tokens=Decimal("2.0"),
+                cache_read_multiplier=Decimal("0.1"),
+                cache_write_multiplier=Decimal("1.25"),
+                max_output_tokens=1024,
+                context_window=128000,
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(
+            select(ModelTier).where(ModelTier.alias == "cache-test")
+        )
+        assert loaded is not None
+        assert loaded.cache_read_multiplier == Decimal("0.1")
+        assert loaded.cache_write_multiplier == Decimal("1.25")
+
+
+async def test_model_tier_cache_multipliers_default_neutral(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import ModelTier
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            ModelTier(
+                alias="cache-default",
+                display_name="Cache Default",
+                upstream_model_id="model-y",
+                upstream_provider_name="provider",
+                input_credits_per_1k_tokens=Decimal("1.0"),
+                output_credits_per_1k_tokens=Decimal("2.0"),
+                max_output_tokens=1024,
+                context_window=128000,
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(
+            select(ModelTier).where(ModelTier.alias == "cache-default")
+        )
+        assert loaded is not None
+        assert loaded.cache_read_multiplier == Decimal("1.0")
+        assert loaded.cache_write_multiplier == Decimal("1.0")

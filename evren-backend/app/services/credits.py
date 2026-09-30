@@ -21,9 +21,37 @@ def quantize_credits(value: Decimal) -> Decimal:
     return value.quantize(CREDIT_QUANTUM, rounding=ROUND_HALF_UP)
 
 
-def token_cost(tier: TierView, prompt_tokens: int, completion_tokens: int) -> Decimal:
+def token_cost(
+    tier: TierView,
+    prompt_tokens: int,
+    completion_tokens: int,
+    *,
+    cached_prompt_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> Decimal:
+    """Credit cost for a settled request.
+
+    Prompt tokens are billed in three disjoint buckets so prompt caching is
+    priced accurately (and the user only pays the discounted rate for cached
+    reads):
+
+    * ``cached_prompt_tokens``  read from cache  -> ``in_rate * cache_read_multiplier``
+    * ``cache_write_tokens``    written to cache -> ``in_rate * cache_write_multiplier``
+    * the remainder (fresh)                      -> ``in_rate``
+
+    Buckets are clamped so they never sum above ``prompt_tokens``; a provider
+    that reports no cache info simply bills the whole prompt at the plain input
+    rate (historical behaviour). Completion tokens are always billed at the
+    plain output rate.
+    """
+    cached = max(0, min(cached_prompt_tokens, prompt_tokens))
+    written = max(0, min(cache_write_tokens, prompt_tokens - cached))
+    fresh = max(prompt_tokens - cached - written, 0)
+    input_rate = tier.input_credits_per_1k_tokens
     cost = (
-        Decimal(prompt_tokens) * tier.input_credits_per_1k_tokens
+        Decimal(fresh) * input_rate
+        + Decimal(cached) * input_rate * tier.cache_read_multiplier
+        + Decimal(written) * input_rate * tier.cache_write_multiplier
         + Decimal(completion_tokens) * tier.output_credits_per_1k_tokens
     ) / Decimal(1000)
     return quantize_credits(cost)

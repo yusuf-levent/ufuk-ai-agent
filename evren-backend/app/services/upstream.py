@@ -33,6 +33,9 @@ ALLOWED_REQUEST_FIELDS = frozenset(
         "parallel_tool_calls",
         "logprobs",
         "top_logprobs",
+        # Sticky-routing key: keeps a conversation pinned to one upstream
+        # provider so prompt-cache hits stay warm (big cost saver for agents).
+        "session_id",
     }
 )
 

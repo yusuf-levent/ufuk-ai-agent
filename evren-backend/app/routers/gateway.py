@@ -68,6 +68,8 @@ class SseUsageScanner:
         self._content_chars = 0
         self.prompt_tokens: int | None = None
         self.completion_tokens: int | None = None
+        self.cached_prompt_tokens: int = 0
+        self.cache_write_tokens: int = 0
         self.usage_seen = False
 
     def feed_line(self, line: bytes) -> None:
@@ -88,6 +90,12 @@ class SseUsageScanner:
                 self.prompt_tokens = usage["prompt_tokens"]
             if isinstance(usage.get("completion_tokens"), int):
                 self.completion_tokens = usage["completion_tokens"]
+            details = usage.get("prompt_tokens_details")
+            if isinstance(details, dict):
+                if isinstance(details.get("cached_tokens"), int):
+                    self.cached_prompt_tokens = details["cached_tokens"]
+                if isinstance(details.get("cache_write_tokens"), int):
+                    self.cache_write_tokens = details["cache_write_tokens"]
             self.usage_seen = self.prompt_tokens is not None and self.completion_tokens is not None
         for choice in obj.get("choices") or []:
             if not isinstance(choice, dict):
@@ -171,8 +179,16 @@ async def _finalize_event(
     estimated: bool,
     latency_ms: int,
     status: UsageStatus,
+    cached_prompt_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> None:
-    actual = token_cost(tier, prompt_tokens, completion_tokens)
+    actual = token_cost(
+        tier,
+        prompt_tokens,
+        completion_tokens,
+        cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_tokens=cache_write_tokens,
+    )
     settled = await usage_service.settle_usage_event(
         request.app.state.database,
         event_id=event_id,
@@ -440,6 +456,13 @@ async def chat_completions(
     usage = data.get("usage") if isinstance(data, dict) else None
     prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
     completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+    cached_prompt_tokens = 0
+    cache_write_tokens = 0
+    if isinstance(usage, dict):
+        details = usage.get("prompt_tokens_details")
+        if isinstance(details, dict):
+            cached_prompt_tokens = details.get("cached_tokens") or 0
+            cache_write_tokens = details.get("cache_write_tokens") or 0
     estimated = not (isinstance(prompt_tokens, int) and isinstance(completion_tokens, int))
     if not isinstance(prompt_tokens, int):
         prompt_tokens = est_prompt
@@ -459,6 +482,8 @@ async def chat_completions(
         estimated=estimated,
         latency_ms=latency_ms,
         status=UsageStatus.SETTLED,
+        cached_prompt_tokens=cached_prompt_tokens,
+        cache_write_tokens=cache_write_tokens,
     )
     data["model"] = tier.alias
     logger.info(
@@ -481,7 +506,7 @@ async def stream_sse_events(
     tier_alias: str,
     scanner: SseUsageScanner,
     est_prompt: int,
-    finalize: Callable[[int, int, bool], Awaitable[None]],
+    finalize: Callable[[int, int, bool, int, int], Awaitable[None]],
 ) -> AsyncIterator[bytes]:
     """Passthrough SSE generator: rewrites the model field line by line,
     records usage when the stream ends or the client disconnects."""
@@ -493,7 +518,13 @@ async def stream_sse_events(
             if scanner.completion_tokens is not None
             else scanner.completion_estimate()
         )
-        await finalize(prompt_tokens, completion_tokens, not scanner.usage_seen)
+        await finalize(
+            prompt_tokens,
+            completion_tokens,
+            not scanner.usage_seen,
+            scanner.cached_prompt_tokens,
+            scanner.cache_write_tokens,
+        )
 
     buffer = b""
     try:
@@ -663,7 +694,13 @@ async def _stream_response(
 
     scanner = SseUsageScanner()
 
-    async def finalize(prompt_tokens: int, completion_tokens: int, estimated: bool) -> None:
+    async def finalize(
+        prompt_tokens: int,
+        completion_tokens: int,
+        estimated: bool,
+        cached_prompt_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> None:
         await _finalize_event(
             request,
             user=user,
@@ -676,6 +713,8 @@ async def _stream_response(
             estimated=estimated,
             latency_ms=int((time.monotonic() - started) * 1000),
             status=UsageStatus.SETTLED,
+            cached_prompt_tokens=cached_prompt_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
 
     logger.info(

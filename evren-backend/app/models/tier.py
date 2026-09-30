@@ -17,6 +17,17 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     upstream_provider_name: Mapped[str] = mapped_column(String(100))
     input_credits_per_1k_tokens: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     output_credits_per_1k_tokens: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    # Prompt-cache pricing multipliers applied to the input rate. Providers
+    # discount cached reads (DeepSeek/Alibaba/Anthropic 0.1x, Google/Moonshot
+    # 0.25x, Groq 0.5x) and some charge a premium for cache writes (Anthropic/
+    # Alibaba 1.25x). Defaults keep the historical behaviour: no discount and
+    # no write premium.
+    cache_read_multiplier: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), default=Decimal("1.0"), server_default=text("1.0")
+    )
+    cache_write_multiplier: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), default=Decimal("1.0"), server_default=text("1.0")
+    )
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     context_window: Mapped[int] = mapped_column(Integer)
     # Human-readable price/performance note shown next to the model in the

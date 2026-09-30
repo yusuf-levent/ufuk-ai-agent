@@ -59,6 +59,8 @@ class TierResponse(BaseModel):
     upstream_provider_name: str
     input_credits_per_1k_tokens: Decimal
     output_credits_per_1k_tokens: Decimal
+    cache_read_multiplier: Decimal
+    cache_write_multiplier: Decimal
     max_output_tokens: int
     context_window: int
     price_note: str | None = None
@@ -75,6 +77,8 @@ class TierCreate(BaseModel):
     upstream_provider_name: str = Field(min_length=1, max_length=100)
     input_credits_per_1k_tokens: Decimal = Field(ge=0)
     output_credits_per_1k_tokens: Decimal = Field(ge=0)
+    cache_read_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
+    cache_write_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
     max_output_tokens: int = Field(gt=0)
     context_window: int = Field(gt=0)
     price_note: str | None = Field(default=None, max_length=200)
@@ -90,6 +94,8 @@ class TierUpdate(BaseModel):
     upstream_provider_name: str | None = Field(default=None, min_length=1, max_length=100)
     input_credits_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
     output_credits_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
+    cache_read_multiplier: Decimal | None = Field(default=None, ge=0)
+    cache_write_multiplier: Decimal | None = Field(default=None, ge=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)
     price_note: str | None = Field(default=None, max_length=200)

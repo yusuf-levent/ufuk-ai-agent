@@ -46,6 +46,8 @@ OPENROUTER_BODY = {
     "upstream_provider_name": "openrouter",
     "input_credits_per_1k_tokens": "1.0",
     "output_credits_per_1k_tokens": "2.0",
+    "cache_read_multiplier": "0.1",
+    "cache_write_multiplier": "1.25",
     "max_output_tokens": 1024,
     "context_window": 128000,
     "enabled": True,

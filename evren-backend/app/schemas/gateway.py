@@ -30,6 +30,9 @@ class ChatCompletionRequest(BaseModel):
     parallel_tool_calls: bool | None = None
     logprobs: bool | None = None
     top_logprobs: int | None = Field(default=None, ge=0, le=20)
+    # Sticky-routing key forwarded to the upstream so prompt-cache hits stay
+    # warm within a conversation (see OpenRouter `session_id`).
+    session_id: str | None = Field(default=None, max_length=256)
 
     @field_validator("messages")
     @classmethod

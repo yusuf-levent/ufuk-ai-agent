@@ -23,6 +23,11 @@ class TierView:
     output_credits_per_1k_tokens: Decimal
     max_output_tokens: int
     context_window: int
+    # Prompt-cache pricing multipliers applied to the input rate (1.0 = no
+    # discount/premium). Optional with a neutral default so older callers and
+    # stale cache entries keep working unchanged.
+    cache_read_multiplier: Decimal = Decimal("1.0")
+    cache_write_multiplier: Decimal = Decimal("1.0")
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> TierView:
@@ -33,6 +38,10 @@ class TierView:
             upstream_provider_name=data["upstream_provider_name"],
             input_credits_per_1k_tokens=Decimal(data["input_credits_per_1k_tokens"]),
             output_credits_per_1k_tokens=Decimal(data["output_credits_per_1k_tokens"]),
+            # Older cache entries predate the cache multipliers; fall back to
+            # neutral values so a stale Redis key never breaks billing.
+            cache_read_multiplier=Decimal(data.get("cache_read_multiplier", "1.0")),
+            cache_write_multiplier=Decimal(data.get("cache_write_multiplier", "1.0")),
             max_output_tokens=int(data["max_output_tokens"]),
             context_window=int(data["context_window"]),
         )
@@ -45,6 +54,8 @@ class TierView:
             "upstream_provider_name": self.upstream_provider_name,
             "input_credits_per_1k_tokens": str(self.input_credits_per_1k_tokens),
             "output_credits_per_1k_tokens": str(self.output_credits_per_1k_tokens),
+            "cache_read_multiplier": str(self.cache_read_multiplier),
+            "cache_write_multiplier": str(self.cache_write_multiplier),
             "max_output_tokens": str(self.max_output_tokens),
             "context_window": str(self.context_window),
         }
@@ -58,6 +69,8 @@ def tier_to_view(tier: ModelTier) -> TierView:
         upstream_provider_name=tier.upstream_provider_name,
         input_credits_per_1k_tokens=tier.input_credits_per_1k_tokens,
         output_credits_per_1k_tokens=tier.output_credits_per_1k_tokens,
+        cache_read_multiplier=tier.cache_read_multiplier,
+        cache_write_multiplier=tier.cache_write_multiplier,
         max_output_tokens=tier.max_output_tokens,
         context_window=tier.context_window,
     )
