@@ -28,6 +28,7 @@ def token_cost(
     *,
     cached_prompt_tokens: int = 0,
     cache_write_tokens: int = 0,
+    reasoning_tokens: int = 0,
 ) -> Decimal:
     """Credit cost for a settled request.
 
@@ -41,18 +42,32 @@ def token_cost(
 
     Buckets are clamped so they never sum above ``prompt_tokens``; a provider
     that reports no cache info simply bills the whole prompt at the plain input
-    rate (historical behaviour). Completion tokens are always billed at the
-    plain output rate.
+    rate (historical behaviour).
+
+    Completion tokens are split into a reasoning subset and a visible subset.
+    Upstreams already count reasoning INSIDE ``completion_tokens``, so the
+    reasoning portion is *moved* into its own term rather than added on top —
+    this is what prevents double billing:
+
+        visible  = completion - reasoning   -> ``out_rate``
+        reasoning (clamped to completion)   -> ``out_rate * reasoning_multiplier``
+
+    With the default ``reasoning_multiplier`` of 1.0 the two terms collapse
+    back into ``completion * out_rate`` — exactly today's cost.
     """
     cached = max(0, min(cached_prompt_tokens, prompt_tokens))
     written = max(0, min(cache_write_tokens, prompt_tokens - cached))
     fresh = max(prompt_tokens - cached - written, 0)
+    reasoning = max(0, min(reasoning_tokens, completion_tokens))
+    visible = max(completion_tokens - reasoning, 0)
     input_rate = tier.input_credits_per_1k_tokens
+    output_rate = tier.output_credits_per_1k_tokens
     cost = (
         Decimal(fresh) * input_rate
         + Decimal(cached) * input_rate * tier.cache_read_multiplier
         + Decimal(written) * input_rate * tier.cache_write_multiplier
-        + Decimal(completion_tokens) * tier.output_credits_per_1k_tokens
+        + Decimal(visible) * output_rate
+        + Decimal(reasoning) * output_rate * tier.reasoning_multiplier
     ) / Decimal(1000)
     return quantize_credits(cost)
 

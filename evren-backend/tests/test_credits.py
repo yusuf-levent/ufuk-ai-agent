@@ -130,6 +130,98 @@ def test_token_cost_negative_buckets_treated_as_zero() -> None:
     assert cost == token_cost(tier, 1000, 500)
 
 
+# ---------------------------------------------------------------------------
+# Reasoning pricing — the anti-double-billing guarantee
+#
+# Upstreams count reasoning INSIDE completion_tokens, so reasoning is already
+# billed at the plain output rate. The multiplier must therefore be a RELATIVE
+# weight on that subset, never an extra charge on top of it.
+# ---------------------------------------------------------------------------
+
+
+def test_reasoning_default_multiplier_does_not_double_bill() -> None:
+    """THE critical financial guarantee: with reasoning_multiplier=1.0 the cost
+    must be byte-identical to ignoring reasoning entirely. If this ever fails,
+    users are being charged twice for the same tokens."""
+    tier = make_tier()  # reasoning_multiplier defaults to 1.0
+    without = token_cost(tier, 1000, 500)
+    with_reasoning = token_cost(tier, 1000, 500, reasoning_tokens=500)
+    assert with_reasoning == without
+    # Partial reasoning must also collapse to the same total.
+    assert token_cost(tier, 1000, 500, reasoning_tokens=123) == without
+
+
+def test_reasoning_premium_applies_only_to_reasoning_subset() -> None:
+    tier = replace(make_tier(), reasoning_multiplier=Decimal("1.5"))
+    # completion 500 = 300 visible + 200 reasoning
+    #   visible  300 * 2/1000 = 0.6
+    #   reasoning 200 * 2 * 1.5 / 1000 = 0.6
+    #   prompt 1000 * 1/1000 = 1.0   -> total 2.2
+    cost = token_cost(tier, 1000, 500, reasoning_tokens=200)
+    assert cost == Decimal("2.200000")
+    # Sanity: the premium is exactly (200 * 2 * 0.5)/1000 = 0.2 over the base.
+    base = token_cost(make_tier(), 1000, 500, reasoning_tokens=200)
+    assert cost - base == Decimal("0.200000")
+
+
+def test_reasoning_clamped_to_completion_tokens() -> None:
+    """Over-reported reasoning must never bill more than the completion total."""
+    tier = replace(make_tier(), reasoning_multiplier=Decimal("2.0"))
+    clamped = token_cost(tier, 1000, 500, reasoning_tokens=9999)
+    full = token_cost(tier, 1000, 500, reasoning_tokens=500)
+    assert clamped == full
+
+
+def test_reasoning_negative_treated_as_zero() -> None:
+    tier = replace(make_tier(), reasoning_multiplier=Decimal("2.0"))
+    cost = token_cost(tier, 1000, 500, reasoning_tokens=-100)
+    assert cost == token_cost(make_tier(), 1000, 500)
+
+
+def test_reasoning_all_completion_is_reasoning() -> None:
+    tier = replace(make_tier(), reasoning_multiplier=Decimal("1.5"))
+    # completion 500, all reasoning: 500 * 2 * 1.5 / 1000 = 1.5
+    # prompt 1000 * 1/1000 = 1.0  -> total 2.5
+    cost = token_cost(tier, 1000, 500, reasoning_tokens=500)
+    assert cost == Decimal("2.500000")
+
+
+def test_reasoning_combined_with_cache_buckets() -> None:
+    """Cache discounts and the reasoning premium compose without interfering."""
+    tier = replace(
+        make_tier(),
+        cache_read_multiplier=Decimal("0.1"),
+        cache_write_multiplier=Decimal("1.25"),
+        reasoning_multiplier=Decimal("1.5"),
+    )
+    # prompt 1000 = 300 cached @0.1x + 200 written @1.25x + 500 fresh @1x
+    #   = (30 + 250 + 500) / 1000 = 0.78
+    # completion 500 = 300 visible + 200 reasoning @1.5x
+    #   = (600 + 600) / 1000 = 1.2   -> total 1.98
+    cost = token_cost(
+        tier,
+        1000,
+        500,
+        cached_prompt_tokens=300,
+        cache_write_tokens=200,
+        reasoning_tokens=200,
+    )
+    assert cost == Decimal("1.980000")
+
+
+def test_tier_view_reasoning_multiplier_roundtrip() -> None:
+    tier = replace(make_tier(), reasoning_multiplier=Decimal("1.5"))
+    restored = TierView.from_dict(tier.as_dict())
+    assert restored.reasoning_multiplier == Decimal("1.5")
+
+
+def test_tier_view_reasoning_multiplier_stale_cache_defaults_neutral() -> None:
+    data = make_tier().as_dict()
+    del data["reasoning_multiplier"]
+    restored = TierView.from_dict(data)
+    assert restored.reasoning_multiplier == Decimal("1.0")
+
+
 def test_token_cost_quantized_to_six_decimals() -> None:
     tier = make_tier()
     cost = token_cost(tier, 1, 1)

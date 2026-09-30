@@ -126,6 +126,37 @@ async def test_model_tier_cache_multipliers_default_neutral(app: FastAPI) -> Non
         assert loaded is not None
         assert loaded.cache_read_multiplier == Decimal("1.0")
         assert loaded.cache_write_multiplier == Decimal("1.0")
+        assert loaded.reasoning_multiplier == Decimal("1.0")
+
+
+async def test_model_tier_reasoning_multiplier_roundtrip(app: FastAPI) -> None:
+    from decimal import Decimal
+
+    from app.models import ModelTier
+
+    database = app.state.database
+    async with database.session() as session:
+        session.add(
+            ModelTier(
+                alias="reasoning-test",
+                display_name="Reasoning Test",
+                upstream_model_id="model-z",
+                upstream_provider_name="provider",
+                input_credits_per_1k_tokens=Decimal("1.0"),
+                output_credits_per_1k_tokens=Decimal("2.0"),
+                reasoning_multiplier=Decimal("1.5"),
+                max_output_tokens=1024,
+                context_window=128000,
+            )
+        )
+        await session.commit()
+
+    async with database.session() as session:
+        loaded = await session.scalar(
+            select(ModelTier).where(ModelTier.alias == "reasoning-test")
+        )
+        assert loaded is not None
+        assert loaded.reasoning_multiplier == Decimal("1.5")
 
 
 async def test_plan_budget_fields_roundtrip(app: FastAPI) -> None:

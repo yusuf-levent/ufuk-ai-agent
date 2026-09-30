@@ -21,6 +21,7 @@ class TierUsage:
     requests: int
     prompt_tokens: int
     completion_tokens: int
+    reasoning_tokens: int
     credits_charged: Decimal
 
 
@@ -35,6 +36,7 @@ async def period_usage(
                     func.count(UsageEvent.id),
                     func.coalesce(func.sum(UsageEvent.prompt_tokens), 0),
                     func.coalesce(func.sum(UsageEvent.completion_tokens), 0),
+                    func.coalesce(func.sum(UsageEvent.reasoning_tokens), 0),
                     func.coalesce(func.sum(UsageEvent.credits_charged), 0),
                 )
                 .where(
@@ -53,7 +55,8 @@ async def period_usage(
             requests=row[1],
             prompt_tokens=row[2],
             completion_tokens=row[3],
-            credits_charged=quantize_credits(Decimal(row[4])),
+            reasoning_tokens=row[4],
+            credits_charged=quantize_credits(Decimal(row[5])),
         )
         for row in rows
     ]

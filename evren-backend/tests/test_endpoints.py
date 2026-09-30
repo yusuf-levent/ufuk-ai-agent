@@ -122,6 +122,7 @@ async def test_usage_endpoint_aggregates_current_period(
                 upstream_model_id="dev-model-fast",
                 prompt_tokens=1000,
                 completion_tokens=500,
+                reasoning_tokens=150,
                 credits_charged=Decimal("2.000000"),
                 estimated=False,
                 status=UsageStatus.SETTLED,
@@ -136,6 +137,7 @@ async def test_usage_endpoint_aggregates_current_period(
                 upstream_model_id="dev-model-fast",
                 prompt_tokens=2000,
                 completion_tokens=0,
+                reasoning_tokens=50,
                 credits_charged=Decimal("2.000000"),
                 estimated=False,
                 status=UsageStatus.SETTLED,
@@ -154,6 +156,10 @@ async def test_usage_endpoint_aggregates_current_period(
     per_tier = {t["tier_alias"]: t for t in data["per_tier"]}
     assert per_tier["fast"]["requests"] == 2
     assert per_tier["fast"]["prompt_tokens"] == 3000
+    assert per_tier["fast"]["completion_tokens"] == 500
+    # Financial transparency: reasoning tokens are surfaced so the user can
+    # see WHY a short answer cost what it cost ("thought for N tokens").
+    assert per_tier["fast"]["reasoning_tokens"] == 200
     assert per_tier["fast"]["credits_charged"] == "4.000000"
     assert data["period_start"] is not None
     assert data["period_end"] is not None

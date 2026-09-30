@@ -238,6 +238,7 @@ async def _finalize_event(
         completion_tokens,
         cached_prompt_tokens=cached_prompt_tokens,
         cache_write_tokens=cache_write_tokens,
+        reasoning_tokens=reasoning_tokens,
     )
     settled = await usage_service.settle_usage_event(
         request.app.state.database,

@@ -28,6 +28,14 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     cache_write_multiplier: Mapped[Decimal] = mapped_column(
         Numeric(6, 4), default=Decimal("1.0"), server_default=text("1.0")
     )
+    # Premium applied to reasoning (chain-of-thought) tokens ONLY. Providers
+    # already count reasoning inside `completion_tokens`, so this is a relative
+    # weight on that subset — NOT an extra charge on top of the output rate.
+    # 1.0 (default) = reasoning billed exactly like visible output (no double
+    # billing); 1.5 = reasoning costs 50% more than visible output.
+    reasoning_multiplier: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), default=Decimal("1.0"), server_default=text("1.0")
+    )
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     context_window: Mapped[int] = mapped_column(Integer)
     # Human-readable price/performance note shown next to the model in the

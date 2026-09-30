@@ -70,6 +70,7 @@ class TierResponse(BaseModel):
     output_credits_per_1k_tokens: Decimal
     cache_read_multiplier: Decimal
     cache_write_multiplier: Decimal
+    reasoning_multiplier: Decimal
     max_output_tokens: int
     context_window: int
     price_note: str | None = None
@@ -88,6 +89,7 @@ class TierCreate(BaseModel):
     output_credits_per_1k_tokens: Decimal = Field(ge=0)
     cache_read_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
     cache_write_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
+    reasoning_multiplier: Decimal = Field(default=Decimal("1.0"), ge=0)
     max_output_tokens: int = Field(gt=0)
     context_window: int = Field(gt=0)
     price_note: str | None = Field(default=None, max_length=200)
@@ -105,6 +107,7 @@ class TierUpdate(BaseModel):
     output_credits_per_1k_tokens: Decimal | None = Field(default=None, ge=0)
     cache_read_multiplier: Decimal | None = Field(default=None, ge=0)
     cache_write_multiplier: Decimal | None = Field(default=None, ge=0)
+    reasoning_multiplier: Decimal | None = Field(default=None, ge=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)
     price_note: str | None = Field(default=None, max_length=200)
@@ -134,6 +137,7 @@ class TierUsageResponse(BaseModel):
     requests: int
     prompt_tokens: int
     completion_tokens: int
+    reasoning_tokens: int
     credits_charged: Decimal
 
 
