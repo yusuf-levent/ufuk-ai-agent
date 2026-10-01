@@ -24,24 +24,24 @@ def _load_seed_module():
 
 def test_seed_tier_ceilings_match_reasoning_model_needs() -> None:
     seed = _load_seed_module()
-    assert seed.DEFAULT_TIERS["fast"]["max_output_tokens"] == 8192
+    assert seed.DEFAULT_TIERS["qwen3.7-flash"]["max_output_tokens"] == 8192
     assert (
-        seed.DEFAULT_TIERS["fast"]["price_note"]
+        seed.DEFAULT_TIERS["qwen3.7-flash"]["price_note"]
         == "Cheapest — for short questions and quick tasks"
     )
     assert (
-        seed.DEFAULT_TIERS["fast"]["price_note_tr"]
+        seed.DEFAULT_TIERS["qwen3.7-flash"]["price_note_tr"]
         == "En ucuz — kısa sorular ve hızlı görevler için"
     )
-    assert seed.DEFAULT_TIERS["balanced"]["max_output_tokens"] == 8192
-    assert seed.DEFAULT_TIERS["strong"]["max_output_tokens"] == 16384
+    assert seed.DEFAULT_TIERS["qwen3.8-flash"]["max_output_tokens"] == 8192
+    assert seed.DEFAULT_TIERS["glm-5.3-flash"]["max_output_tokens"] == 16384
     assert (
-        seed.DEFAULT_TIERS["strong"]["price_note"]
-        == "Most powerful — complex tasks, more expensive"
+        seed.DEFAULT_TIERS["glm-5.3-flash"]["price_note"]
+        == "Strong — complex tasks, more expensive"
     )
     assert (
-        seed.DEFAULT_TIERS["strong"]["price_note_tr"]
-        == "En güçlü — karmaşık görevler, daha pahalı"
+        seed.DEFAULT_TIERS["glm-5.3-flash"]["price_note_tr"]
+        == "Güçlü — karmaşık görevler, daha pahalı"
     )
 
 
@@ -141,12 +141,15 @@ def test_seed_fallbacks_are_same_or_cheaper() -> None:
     seed = _load_seed_module()
     usd_per_1m = {
         "qwen/qwen3.7-flash": 0.03 + 0.13,
-        "deepseek/deepseek-v4.1-flash": 0.30 + 1.20,
-        "google/gemma-4-31b-it": 0.09 + 0.34,
+        "deepseek/deepseek-v4.1-flash": 0.03 + 0.50,
         "qwen/qwen3.8-flash": 0.15 + 0.47,
         "z-ai/glm-5.3-flash": 0.15 + 0.50,
         "xiaomi/mimo-v2.6-pro": 0.435 + 0.87,
+        "openai/gpt-6-sol": 2.0 + 10.0,
+        "anthropic/claude-sonnet-5.5": 2.0 + 10.0,
+        "anthropic/claude-opus-5.5": 4.0 + 20.0,
         # Fallback-only models (not seeded tiers):
+        "google/gemma-4-31b-it": 0.09 + 0.34,
         "inclusionai/ling-3.0-flash-vl": 0.021 + 0.062,
     }
     for alias, tier in seed.DEFAULT_TIERS.items():

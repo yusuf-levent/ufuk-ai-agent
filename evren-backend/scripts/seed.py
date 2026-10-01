@@ -39,14 +39,17 @@ PROVIDER = os.environ.get("SEED_PROVIDER", "evren-llmapi")
 # gateway's credit pricing, not upstream USD prices. `price_note` is the
 # English (default) variant; `price_note_tr` holds the Turkish translation.
 DEFAULT_TIERS = {
-    "fast": {
+    # ------------------------------------------------------------------
+    # GIRIS / ORTA katman - Cinli modeller (ucuz, vision + tool zorunlu)
+    # ------------------------------------------------------------------
+    "qwen3.7-flash": {
         "display_name": "Qwen 3.7 Flash",
-        "upstream_model_id": os.environ.get("SEED_FAST_MODEL", "qwen/qwen3.7-flash"),
+        "upstream_model_id": os.environ.get("SEED_QWEN37_FLASH_MODEL", "qwen/qwen3.7-flash"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.039"),
         "output_credits_per_1k_tokens": Decimal("0.169"),
         # Live OpenRouter ratios (2026-10-01): qwen3.7-flash cache read is 0.2x
-        # and cache WRITE is 1.27x the prompt price — charging 1.0x for writes
+        # and cache WRITE is 1.27x the prompt price - charging 1.0x for writes
         # would sell below cost.
         "cache_read_multiplier": Decimal("0.2"),
         "cache_write_multiplier": Decimal("1.27"),
@@ -58,7 +61,7 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
-        # Same-or-cheaper only (live USD, 2026-09-29): ling-3.0-flash-vl is
+        # Same-or-cheaper only (live USD, 2026-10-01): ling-3.0-flash-vl is
         # $0.083/1M in+out vs this tier's $0.16. A pricier fallback would
         # silently inflate the bill whenever the primary errors.
         "fallback_model_ids": ["inclusionai/ling-3.0-flash-vl"],
@@ -67,7 +70,7 @@ DEFAULT_TIERS = {
         "price_note_tr": "En ucuz — kısa sorular ve hızlı görevler için",
         "tooltip_title": "Qwen 3.7 Flash",
         "tooltip_body": "En ucuz seçenek. Kısa sorular ve hızlı görevler için ideal. "
-        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "Uzun sohbetlerde onbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 1,
         "tooltip_speed_level": 5,
         "tooltip_quality_level": 2,
@@ -75,15 +78,16 @@ DEFAULT_TIERS = {
         "speed_hint": 5,
         "quality_hint": 2,
     },
-    "fast2": {
+    "deepseek-v4.1-flash": {
         "display_name": "DeepSeek V4.1 Flash",
-        "upstream_model_id": os.environ.get("SEED_FAST2_MODEL", "deepseek/deepseek-v4.1-flash"),
+        "upstream_model_id": os.environ.get(
+            "SEED_DEEPSEEK_V41_FLASH_MODEL", "deepseek/deepseek-v4.1-flash"
+        ),
         "upstream_provider_name": PROVIDER,
-        "input_credits_per_1k_tokens": Decimal("0.39"),
-        "output_credits_per_1k_tokens": Decimal("1.56"),
+        "input_credits_per_1k_tokens": Decimal("0.039"),
+        "output_credits_per_1k_tokens": Decimal("0.65"),
         # Live OpenRouter ratios (2026-10-01): deepseek-v4.1-flash cache read is
-        # 0.333x the prompt price (no write premium). The earlier 0.02x guess
-        # was 16x too generous and sold cached prompts below cost.
+        # 0.333x the prompt price (no write premium).
         "cache_read_multiplier": Decimal("0.333"),
         "cache_write_multiplier": Decimal("1.0"),
         "reasoning_multiplier": Decimal("1.0"),
@@ -100,7 +104,7 @@ DEFAULT_TIERS = {
         "price_note_tr": "Ucuz ve hızlı, görsel girdi destekli",
         "tooltip_title": "DeepSeek V4.1 Flash",
         "tooltip_body": "Ucuz ve hızlı. Görsel girdi destekli. "
-        "Kısa sorular ve hızlı görevler için ideal.",
+        "Kisa sorular ve hizli gorevler icin ideal.",
         "tooltip_cost_level": 1,
         "tooltip_speed_level": 5,
         "tooltip_quality_level": 3,
@@ -108,38 +112,9 @@ DEFAULT_TIERS = {
         "speed_hint": 5,
         "quality_hint": 3,
     },
-    "balanced": {
-        "display_name": "Gemma 4 31B",
-        "upstream_model_id": os.environ.get("SEED_BALANCED_MODEL", "google/gemma-4-31b-it"),
-        "upstream_provider_name": PROVIDER,
-        "input_credits_per_1k_tokens": Decimal("0.117"),
-        "output_credits_per_1k_tokens": Decimal("0.442"),
-        "cache_read_multiplier": Decimal("0.556"),
-        "cache_write_multiplier": Decimal("1.0"),
-        "reasoning_multiplier": Decimal("1.0"),
-        "max_output_tokens": 8192,
-        "context_window": 262144,
-        "input_modalities": ["text", "image"],
-        "output_modalities": ["text"],
-        "supports_tools": True,
-        "pricing_unit": "token",
-        "is_internal": False,
-        "fallback_model_ids": ["qwen/qwen3.7-flash"],
-        "routing_plugin": None,
-        "price_note": "Balanced — good choice for daily use",
-        "price_note_tr": "Dengeli — günlük kullanım için iyi seçim",
-        "tooltip_title": "Gemma 4 31B",
-        "tooltip_body": "Dengeli — günlük kullanım için iyi seçim. Görsel ve video girdi destekli.",
-        "tooltip_cost_level": 2,
-        "tooltip_speed_level": 4,
-        "tooltip_quality_level": 3,
-        "tooltip_best_for": "Günlük kodlama, refactor, genel görevler",
-        "speed_hint": 4,
-        "quality_hint": 3,
-    },
-    "balanced2": {
+    "qwen3.8-flash": {
         "display_name": "Qwen 3.8 Flash",
-        "upstream_model_id": os.environ.get("SEED_BALANCED2_MODEL", "qwen/qwen3.8-flash"),
+        "upstream_model_id": os.environ.get("SEED_QWEN38_FLASH_MODEL", "qwen/qwen3.8-flash"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.195"),
         "output_credits_per_1k_tokens": Decimal("0.611"),
@@ -153,14 +128,14 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
-        "fallback_model_ids": ["google/gemma-4-31b-it", "qwen/qwen3.7-flash"],
+        "fallback_model_ids": ["qwen/qwen3.7-flash", "google/gemma-4-31b-it"],
         "routing_plugin": None,
-        "price_note": "Balanced, supports image input",
-        "price_note_tr": "Dengeli, görsel girdi destekli",
+        "price_note": "Balanced — good choice for daily use",
+        "price_note_tr": "Dengeli — günlük kullanım için iyi seçim",
         "tooltip_title": "Qwen 3.8 Flash",
         "tooltip_body": "Dengeli — günlük kullanım için iyi seçim. "
-        "Görsel ve video girdi destekli. "
-        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "Gorsel ve video girdi destekli. "
+        "Uzun sohbetlerde onbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 2,
         "tooltip_speed_level": 4,
         "tooltip_quality_level": 3,
@@ -168,9 +143,9 @@ DEFAULT_TIERS = {
         "speed_hint": 4,
         "quality_hint": 3,
     },
-    "strong": {
+    "glm-5.3-flash": {
         "display_name": "GLM 5.3 Flash",
-        "upstream_model_id": os.environ.get("SEED_STRONG_MODEL", "z-ai/glm-5.3-flash"),
+        "upstream_model_id": os.environ.get("SEED_GLM53_FLASH_MODEL", "z-ai/glm-5.3-flash"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.195"),
         "output_credits_per_1k_tokens": Decimal("0.65"),
@@ -184,25 +159,23 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
-        # Same-or-cheaper only (live USD): qwen3.8-flash $0.62 vs this tier's
-        # $0.65. MiMo ($1.305) would be 2x pricier and inflate bills on errors.
         "fallback_model_ids": ["qwen/qwen3.8-flash", "google/gemma-4-31b-it"],
         "routing_plugin": None,
-        "price_note": "Most powerful — complex tasks, more expensive",
-        "price_note_tr": "En güçlü — karmaşık görevler, daha pahalı",
+        "price_note": "Strong — complex tasks, more expensive",
+        "price_note_tr": "Güçlü — karmaşık görevler, daha pahalı",
         "tooltip_title": "GLM 5.3 Flash",
-        "tooltip_body": "En güçlü — karmaşık görevler, daha pahalı. "
-        "Mimari kararlar, zor hata ayıklama, kritik refactor için.",
+        "tooltip_body": "Güçlü — karmaşık görevler, daha pahalı. "
+        "Mimari kararlar, zor hata ayiklama, kritik refactor icin.",
         "tooltip_cost_level": 3,
         "tooltip_speed_level": 2,
-        "tooltip_quality_level": 5,
+        "tooltip_quality_level": 4,
         "tooltip_best_for": "Mimari kararlar, zor hata ayıklama, kritik refactor",
         "speed_hint": 2,
-        "quality_hint": 5,
+        "quality_hint": 4,
     },
-    "strong2": {
+    "mimo-v2.6-pro": {
         "display_name": "MiMo v2.6 Pro",
-        "upstream_model_id": os.environ.get("SEED_STRONG2_MODEL", "xiaomi/mimo-v2.6-pro"),
+        "upstream_model_id": os.environ.get("SEED_MIMO_V26_PRO_MODEL", "xiaomi/mimo-v2.6-pro"),
         "upstream_provider_name": PROVIDER,
         "input_credits_per_1k_tokens": Decimal("0.5655"),
         "output_credits_per_1k_tokens": Decimal("1.131"),
@@ -218,12 +191,12 @@ DEFAULT_TIERS = {
         "is_internal": False,
         "fallback_model_ids": ["z-ai/glm-5.3-flash", "qwen/qwen3.8-flash"],
         "routing_plugin": None,
-        "price_note": "Powerful, long reasoning and image input",
+        "price_note": "Powerful — long reasoning and image input",
         "price_note_tr": "Güçlü, uzun akıl yürütme ve görsel girdi destekli",
         "tooltip_title": "MiMo v2.6 Pro",
         "tooltip_body": "Güçlü, uzun akıl yürütme ve görsel girdi destekli. "
-        "Karmaşık görevler için. "
-        "Uzun sohbetlerde önbellek sayesinde daha da ucuzlar.",
+        "Karma??k gorevler icin. "
+        "Uzun sohbetlerde onbellek sayesinde daha da ucuzlar.",
         "tooltip_cost_level": 3,
         "tooltip_speed_level": 2,
         "tooltip_quality_level": 4,
@@ -231,6 +204,111 @@ DEFAULT_TIERS = {
         "speed_hint": 2,
         "quality_hint": 4,
     },
+    # ------------------------------------------------------------------
+    # FRONTIER katman - GPT / Claude amiral gemileri (pahali, en iyi kalite)
+    # ------------------------------------------------------------------
+    "gpt-6-sol": {
+        "display_name": "GPT-6 Sol",
+        "upstream_model_id": os.environ.get("SEED_GPT6_SOL_MODEL", "openai/gpt-6-sol"),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("2.6"),
+        "output_credits_per_1k_tokens": Decimal("13.0"),
+        # Live OpenRouter ratios (2026-10-01): gpt-6-sol cache read 0.1x,
+        # cache write 1.25x the prompt price.
+        "cache_read_multiplier": Decimal("0.1"),
+        "cache_write_multiplier": Decimal("1.25"),
+        "reasoning_multiplier": Decimal("1.0"),
+        "max_output_tokens": 32768,
+        "context_window": 1050000,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "supports_tools": True,
+        "pricing_unit": "token",
+        "is_internal": False,
+        "fallback_model_ids": ["anthropic/claude-sonnet-5.5"],
+        "routing_plugin": None,
+        "price_note": "Frontier — OpenAI flagship, most capable",
+        "price_note_tr": "Frontier — OpenAI amiral gemisi, en yetenekli",
+        "tooltip_title": "GPT-6 Sol",
+        "tooltip_body": "Frontier — OpenAI amiral gemisi. "
+        "En zor gorevler, mimari kararlar ve kritik kodlama icin. "
+        "Cok pahalidir - gunluk isler icin onerilmez.",
+        "tooltip_cost_level": 5,
+        "tooltip_speed_level": 2,
+        "tooltip_quality_level": 5,
+        "tooltip_best_for": "En zor görevler, mimari kararlar, kritik kodlama",
+        "speed_hint": 2,
+        "quality_hint": 5,
+    },
+    "claude-sonnet-5.5": {
+        "display_name": "Claude Sonnet 5.5",
+        "upstream_model_id": os.environ.get(
+            "SEED_CLAUDE_SONNET55_MODEL", "anthropic/claude-sonnet-5.5"
+        ),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("2.6"),
+        "output_credits_per_1k_tokens": Decimal("13.0"),
+        "cache_read_multiplier": Decimal("0.1"),
+        "cache_write_multiplier": Decimal("1.25"),
+        "reasoning_multiplier": Decimal("1.0"),
+        "max_output_tokens": 32768,
+        "context_window": 1000000,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "supports_tools": True,
+        "pricing_unit": "token",
+        "is_internal": False,
+        "fallback_model_ids": ["openai/gpt-6-sol"],
+        "routing_plugin": None,
+        "price_note": "Frontier — Anthropic flagship, excellent coder",
+        "price_note_tr": "Frontier — Anthropic amiral gemisi, müthişem kodcu",
+        "tooltip_title": "Claude Sonnet 5.5",
+        "tooltip_body": "Frontier — Anthropic amiral gemisi. "
+        "Kodlama ve uzun muhendislik gorevlerinde ustun. "
+        "Cok pahalidir - gunluk isler icin onerilmez.",
+        "tooltip_cost_level": 5,
+        "tooltip_speed_level": 2,
+        "tooltip_quality_level": 5,
+        "tooltip_best_for": "Kodlama, uzun mühendislik görevleri, refactor",
+        "speed_hint": 2,
+        "quality_hint": 5,
+    },
+    "claude-opus-5.5": {
+        "display_name": "Claude Opus 5.5",
+        "upstream_model_id": os.environ.get(
+            "SEED_CLAUDE_OPUS55_MODEL", "anthropic/claude-opus-5.5"
+        ),
+        "upstream_provider_name": PROVIDER,
+        "input_credits_per_1k_tokens": Decimal("5.2"),
+        "output_credits_per_1k_tokens": Decimal("26.0"),
+        "cache_read_multiplier": Decimal("0.05"),
+        "cache_write_multiplier": Decimal("1.25"),
+        "reasoning_multiplier": Decimal("1.0"),
+        "max_output_tokens": 32768,
+        "context_window": 1000000,
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "supports_tools": True,
+        "pricing_unit": "token",
+        "is_internal": False,
+        "fallback_model_ids": ["anthropic/claude-sonnet-5.5", "openai/gpt-6-sol"],
+        "routing_plugin": None,
+        "price_note": "Frontier ultra — strongest reasoning, very expensive",
+        "price_note_tr": "Frontier ultra — en güçlü akıl yürütme, çok pahalı",
+        "tooltip_title": "Claude Opus 5.5",
+        "tooltip_body": "Frontier ultra — en güçlü akıl yürütme. "
+        "Sadece en zor gorevler icin. "
+        "Cok pahalidir - bir sohbet birkac dakikada bitebilir.",
+        "tooltip_cost_level": 5,
+        "tooltip_speed_level": 1,
+        "tooltip_quality_level": 5,
+        "tooltip_best_for": "En zor analiz, araştırma, kritik kararlar",
+        "speed_hint": 1,
+        "quality_hint": 5,
+    },
+    # ------------------------------------------------------------------
+    # ROUTER - kullanici model secmez, ucuz adaylardan secer
+    # ------------------------------------------------------------------
     "auto": {
         "display_name": "Auto",
         "upstream_model_id": os.environ.get("SEED_AUTO_MODEL", "openrouter/auto"),
@@ -247,7 +325,7 @@ DEFAULT_TIERS = {
         "supports_tools": True,
         "pricing_unit": "token",
         "is_internal": False,
-        # The router may only pick from this cheap, vision+tool capable set —
+        # The router may only pick from this cheap, vision+tool capable set -
         # `allowed_models` is pinned to it server-side (see UpstreamClient).
         "fallback_model_ids": [
             "qwen/qwen3.7-flash",
@@ -259,7 +337,7 @@ DEFAULT_TIERS = {
         "price_note_tr": "Önerilen — görevin için en uygun modeli seçer",
         "tooltip_title": "Auto",
         "tooltip_body": "Önerilen — görevin için en uygun modeli otomatik seçer. "
-        "Hangi modeli kullanacağına kendin karar vermek istemiyorsan bunu seç.",
+        "Hangi modeli kullanacagina kendin karar vermek istemiyorsan bunu sec.",
         "tooltip_cost_level": 2,
         "tooltip_speed_level": 4,
         "tooltip_quality_level": 4,
@@ -269,7 +347,17 @@ DEFAULT_TIERS = {
     },
 }
 
-ALL_TIERS = ["fast", "fast2", "balanced", "balanced2", "strong", "strong2", "auto"]
+ALL_TIERS = [
+    "qwen3.7-flash",
+    "deepseek-v4.1-flash",
+    "qwen3.8-flash",
+    "glm-5.3-flash",
+    "mimo-v2.6-pro",
+    "gpt-6-sol",
+    "claude-sonnet-5.5",
+    "claude-opus-5.5",
+    "auto",
+]
 
 DEFAULT_PLANS = {
     "free": {
@@ -283,14 +371,14 @@ DEFAULT_PLANS = {
         "budget_window_seconds": 300,
         "max_concurrent_requests": 2,
         "monthly_image_quota": 5,
-        "allowed_tier_aliases": ["fast"],
+        "allowed_tier_aliases": ["qwen3.7-flash"],
         "is_default": True,
         "price_usd": Decimal("0"),
         "provider_price_id": None,
     },
     "plus": {
         "monthly_credit_limit": Decimal("2500"),
-        "max_output_tokens_per_request": 16384,
+        "max_output_tokens_per_request": 32768,
         "requests_per_minute": 60,
         "max_credits_per_request": Decimal("50"),
         "max_credits_per_window": Decimal("250"),
@@ -306,7 +394,7 @@ DEFAULT_PLANS = {
     },
     "pro": {
         "monthly_credit_limit": Decimal("30000"),
-        "max_output_tokens_per_request": 16384,
+        "max_output_tokens_per_request": 32768,
         "requests_per_minute": 120,
         "max_credits_per_request": Decimal("500"),
         "max_credits_per_window": Decimal("3000"),
@@ -322,7 +410,7 @@ DEFAULT_PLANS = {
         # Per-seat pricing: the payment provider multiplies this by seat count.
         # The credit grant is per seat; a shared pool is an org-layer concern.
         "monthly_credit_limit": Decimal("2000"),
-        "max_output_tokens_per_request": 16384,
+        "max_output_tokens_per_request": 32768,
         "requests_per_minute": 200,
         "max_credits_per_request": Decimal("100"),
         "max_credits_per_window": Decimal("1000"),
