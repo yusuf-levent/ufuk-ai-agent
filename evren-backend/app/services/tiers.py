@@ -32,6 +32,7 @@ class TierView:
     # reasoning billed like visible output, no double billing).
     reasoning_multiplier: Decimal = Decimal("1.0")
     # Capability metadata (defaults keep older callers working).
+    input_modalities: tuple[str, ...] = ("text",)
     output_modalities: tuple[str, ...] = ("text",)
     supports_tools: bool = True
     pricing_unit: str = "token"
@@ -66,6 +67,11 @@ class TierView:
             reasoning_multiplier=Decimal(data.get("reasoning_multiplier", "1.0")),
             max_output_tokens=int(data["max_output_tokens"]),
             context_window=int(data["context_window"]),
+            input_modalities=tuple(
+                json.loads(data["input_modalities"])
+                if "input_modalities" in data
+                else ("text",)
+            ),
             output_modalities=tuple(
                 json.loads(data["output_modalities"])
                 if "output_modalities" in data
@@ -112,6 +118,7 @@ class TierView:
             "reasoning_multiplier": str(self.reasoning_multiplier),
             "max_output_tokens": str(self.max_output_tokens),
             "context_window": str(self.context_window),
+            "input_modalities": json.dumps(list(self.input_modalities)),
             "output_modalities": json.dumps(list(self.output_modalities)),
             "supports_tools": "true" if self.supports_tools else "false",
             "pricing_unit": self.pricing_unit,
@@ -145,6 +152,7 @@ def tier_to_view(tier: ModelTier) -> TierView:
         reasoning_multiplier=tier.reasoning_multiplier,
         max_output_tokens=tier.max_output_tokens,
         context_window=tier.context_window,
+        input_modalities=tuple(tier.input_modalities or ("text",)),
         output_modalities=tuple(tier.output_modalities or ("text",)),
         supports_tools=bool(tier.supports_tools),
         pricing_unit=str(tier.pricing_unit),

@@ -58,7 +58,7 @@ class PaddleProvider(PaymentProvider):
 
     async def _request(
         self, api_key: str, method: str, path: str, json_body: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    ) -> Any:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.request(
                 method,
@@ -74,6 +74,8 @@ class PaddleProvider(PaymentProvider):
             error = payload.get("error", {})
             message = error.get("detail", response.text[:200])
             raise BillingError(f"Billing provider error: {message}", code="paddle_error")
+        # Paddle wraps most responses in `data`, but list endpoints return a
+        # bare array — hence the loose return type.
         return payload.get("data", payload)
 
     async def create_checkout(
@@ -116,8 +118,11 @@ class PaddleProvider(PaymentProvider):
 
     async def find_customer_id(self, *, api_key: str, email: str) -> str | None:
         found = await self._request(api_key, "GET", f"/customers?email={email}&per_page=1")
-        customers = found if isinstance(found, list) else []
-        return customers[0]["id"] if customers else None
+        customers: list[Any] = found if isinstance(found, list) else []
+        if not customers:
+            return None
+        customer_id: str = customers[0]["id"]
+        return customer_id
 
     async def create_customer(self, *, api_key: str, email: str, user_id: str) -> str:
         created = await self._request(
@@ -126,7 +131,8 @@ class PaddleProvider(PaymentProvider):
             "/customers",
             {"email": email, "custom_data": {"ufuk_user_id": user_id}},
         )
-        return created["id"]
+        customer_id: str = created["id"]
+        return customer_id
 
     def verify_webhook(self, *, payload: bytes, headers: Any, secret: str) -> None:
         signature = headers.get("paddle-signature")
@@ -158,7 +164,8 @@ class PaddleProvider(PaymentProvider):
             return None
 
         data = event.get("data", {}) if isinstance(event.get("data"), dict) else {}
-        custom_data = data.get("custom_data") if isinstance(data.get("custom_data"), dict) else {}
+        raw_custom = data.get("custom_data")
+        custom_data: dict[str, Any] = raw_custom if isinstance(raw_custom, dict) else {}
 
         # Paddle subscriptions carry `items[].price.id`; transactions carry
         # `items[].price_id`.

@@ -8,6 +8,7 @@ from app.errors import ApiError
 from app.models import EmailToken, RefreshToken, Subscription, UsageEvent, User
 from app.schemas.auth import DeleteAccountRequest, UserResponse
 from app.security import verify_password
+from app.services.image_service import ImageService
 
 router = APIRouter(tags=["me"])
 
@@ -30,6 +31,11 @@ async def delete_me(
         )
     database = request.app.state.database
     redis = request.app.state.redis
+    # Purge generated images (binaries + rows) BEFORE the user row disappears:
+    # the FK cascade would drop the rows but leave the files orphaned on disk.
+    images_root = getattr(request.app.state, "images_root", None)
+    if images_root is not None:
+        await ImageService(database, images_root).delete_for_user(user.id)
     async with database.session() as session:
         await session.execute(
             update(UsageEvent).where(UsageEvent.user_id == user.id).values(user_id=None)

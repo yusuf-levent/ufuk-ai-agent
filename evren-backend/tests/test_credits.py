@@ -226,6 +226,7 @@ def test_tier_view_reasoning_multiplier_stale_cache_defaults_neutral() -> None:
 def test_tier_view_capability_fields_roundtrip() -> None:
     tier = replace(
         make_tier(),
+        input_modalities=("text", "image"),
         output_modalities=("text", "image"),
         supports_tools=False,
         pricing_unit="image",
@@ -233,6 +234,7 @@ def test_tier_view_capability_fields_roundtrip() -> None:
         is_internal=True,
     )
     restored = TierView.from_dict(tier.as_dict())
+    assert restored.input_modalities == ("text", "image")
     assert restored.output_modalities == ("text", "image")
     assert restored.supports_tools is False
     assert restored.pricing_unit == "image"
@@ -246,6 +248,7 @@ def test_tier_view_capability_stale_cache_defaults() -> None:
     public) instead of raising."""
     data = make_tier().as_dict()
     for key in (
+        "input_modalities",
         "output_modalities",
         "supports_tools",
         "pricing_unit",
@@ -254,6 +257,7 @@ def test_tier_view_capability_stale_cache_defaults() -> None:
     ):
         del data[key]
     restored = TierView.from_dict(data)
+    assert restored.input_modalities == ("text",)
     assert restored.output_modalities == ("text",)
     assert restored.supports_tools is True
     assert restored.pricing_unit == "token"

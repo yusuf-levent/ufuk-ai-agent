@@ -129,7 +129,8 @@ class StripeProvider(PaymentProvider):
             "/customers",
             _flatten({"email": email, "metadata": {"ufuk_user_id": user_id}}),
         )
-        return created["id"]
+        customer_id: str = created["id"]
+        return customer_id
 
     def verify_webhook(self, *, payload: bytes, headers: Any, secret: str) -> None:
         signature = headers.get("stripe-signature")

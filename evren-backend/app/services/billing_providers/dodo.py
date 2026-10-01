@@ -124,7 +124,8 @@ class DodoProvider(PaymentProvider):
             "/customers",
             {"email": email, "metadata": {"ufuk_user_id": user_id}},
         )
-        return created["customer_id"]
+        customer_id: str = created["customer_id"]
+        return customer_id
 
     def verify_webhook(self, *, payload: bytes, headers: Any, secret: str) -> None:
         # Standard Webhooks: https://standardwebhooks.com/
@@ -160,7 +161,8 @@ class DodoProvider(PaymentProvider):
             return None
 
         data = event.get("data", {}) if isinstance(event.get("data"), dict) else {}
-        customer = data.get("customer") if isinstance(data.get("customer"), dict) else {}
+        raw_customer = data.get("customer")
+        customer: dict[str, Any] = raw_customer if isinstance(raw_customer, dict) else {}
 
         # Subscription payloads carry `product_id`; payment payloads carry
         # `product_cart[].product_id`.

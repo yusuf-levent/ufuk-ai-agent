@@ -227,7 +227,7 @@ async def test_user_terms_acceptance_roundtrip(app: FastAPI) -> None:
                 email="terms@example.com",
                 password_hash="hash",
                 terms_accepted_at=accepted_at,
-                terms_version="2026-09",
+                terms_version="2026-10",
             )
         )
         await session.commit()
@@ -236,7 +236,7 @@ async def test_user_terms_acceptance_roundtrip(app: FastAPI) -> None:
         loaded = await session.scalar(select(User).where(User.email == "terms@example.com"))
         assert loaded is not None
         assert loaded.terms_accepted_at is not None
-        assert loaded.terms_version == "2026-09"
+        assert loaded.terms_version == "2026-10"
         assert loaded.security_flagged is False
 
 
@@ -278,6 +278,7 @@ async def test_model_tier_capability_fields_roundtrip(app: FastAPI) -> None:
                 output_credits_per_1k_tokens=Decimal("3.0"),
                 max_output_tokens=4096,
                 context_window=32000,
+                input_modalities=["text", "image"],
                 output_modalities=["text", "image"],
                 supports_tools=False,
                 pricing_unit=PricingUnit.IMAGE,
@@ -290,6 +291,7 @@ async def test_model_tier_capability_fields_roundtrip(app: FastAPI) -> None:
     async with database.session() as session:
         loaded = await session.scalar(select(ModelTier).where(ModelTier.alias == "img-gen"))
         assert loaded is not None
+        assert list(loaded.input_modalities) == ["text", "image"]
         assert list(loaded.output_modalities) == ["text", "image"]
         assert loaded.supports_tools is False
         assert loaded.pricing_unit == PricingUnit.IMAGE
@@ -324,6 +326,7 @@ async def test_model_tier_capability_defaults(app: FastAPI) -> None:
     async with database.session() as session:
         loaded = await session.scalar(select(ModelTier).where(ModelTier.alias == "legacy"))
         assert loaded is not None
+        assert list(loaded.input_modalities) == ["text"]
         assert list(loaded.output_modalities) == ["text"]
         assert loaded.supports_tools is True
         assert loaded.pricing_unit == PricingUnit.TOKEN

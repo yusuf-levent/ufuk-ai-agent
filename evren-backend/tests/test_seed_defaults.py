@@ -81,15 +81,17 @@ def test_seed_plans_have_concurrency_cap() -> None:
 
 
 def test_seed_user_facing_tiers_support_vision_and_tools() -> None:
-    """Product rule: every user-facing tier must support image input AND tool
-    calling. Text-only models are excluded from the picker."""
+    """Product rule: every user-facing tier must support image INPUT (vision)
+    AND tool calling. Text-only models are excluded from the picker; models
+    that GENERATE images are a separate concern (output_modalities)."""
     seed = _load_seed_module()
     for alias, tier in seed.DEFAULT_TIERS.items():
         if tier.get("is_internal"):
             continue
-        assert "image" in tier["output_modalities"] or "image" in (
-            tier.get("input_modalities") or []
-        ), f"{alias}: no image support"
+        assert "image" in tier["input_modalities"], f"{alias}: no vision (image input)"
+        assert "image" not in tier["output_modalities"], (
+            f"{alias}: chat tier must not claim image generation"
+        )
         assert tier["supports_tools"] is True, f"{alias}: no tool calling"
         assert tier["pricing_unit"] == "token", f"{alias}: user tiers bill by token"
 

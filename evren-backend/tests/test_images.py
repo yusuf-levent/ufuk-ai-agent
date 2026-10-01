@@ -10,6 +10,7 @@ Finansal gÃ¼venlik odaklÄ± testler:
 from __future__ import annotations
 
 import base64
+import json
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -109,11 +110,13 @@ async def install_image_upstream(app: FastAPI):
 
 
 def test_credit_weight_tracks_megapixel_curve() -> None:
-    """4K must cost 4x a 1K image â€” the multiplier mirrors the real megapixel
-    cost curve so a high-res request can never be sold below cost."""
+    """4K must cost 8x a 1K image — the multiplier mirrors BOTH the megapixel
+    cost curve (~4x pixels) AND the per-quality model ladder (Lite -> Nano
+    Banana 2 -> Nano Banana Pro), so a high-res request can never be sold below
+    cost."""
     assert credit_weight(ImageQuality.STANDARD) == 1
     assert credit_weight(ImageQuality.HIGH) == 2
-    assert credit_weight(ImageQuality.ULTRA) == 4
+    assert credit_weight(ImageQuality.ULTRA) == 8
 
 
 def test_dimensions_whitelist() -> None:
@@ -161,7 +164,7 @@ async def test_consume_quota_charges_by_quality(app: FastAPI, tmp_path):
 
     # 1 ultra (weight 4) + 1 standard (weight 1) = 5 credits
     total1 = await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 1, PERIOD)
-    assert total1 == 4
+    assert total1 == 8
     total2 = await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1, PERIOD)
     assert total2 == 1
 
@@ -312,7 +315,7 @@ async def test_generate_image_happy_path(
     assert len(data["images"]) == 1
 
 
-async def test_generate_image_ultra_costs_4x(
+async def test_generate_image_ultra_costs_8x(
     client: AsyncClient, app: FastAPI, image_env, install_image_upstream
 ):
     headers, _ = image_env
@@ -328,9 +331,9 @@ async def test_generate_image_ultra_costs_4x(
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["credit_weight"] == 4
-    assert data["credits_charged"] == "4"
-    assert data["quota_remaining"] == 6
+    assert data["credit_weight"] == 8
+    assert data["credits_charged"] == "8"
+    assert data["quota_remaining"] == 2
 
 
 async def test_generate_image_pins_model_server_side(
@@ -359,6 +362,43 @@ async def test_generate_image_pins_model_server_side(
     )
     assert resp.status_code == 200
     assert captured[0]["model"] == "google/gemini-3.1-flash-lite-image"
+
+
+async def test_high_quality_routes_to_stronger_model(
+    client: AsyncClient, app: FastAPI, image_env, install_image_upstream
+) -> None:
+    """R2 fix: quality picks the model server-side (Lite -> Nano Banana 2 ->
+    Nano Banana Pro). The client still cannot name a model."""
+    from app.models import Plan
+    from sqlalchemy import update
+
+    # Raise the quota so all three quality tiers (1+2+8 credits) fit.
+    async with app.state.database.session() as session:
+        await session.execute(
+            update(Plan).where(Plan.name == "free").values(monthly_image_quota=50)
+        )
+        await session.commit()
+
+    headers, _ = image_env
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json=_fake_image_response())
+
+    await install_image_upstream(handler)
+    for quality, expected in (
+        ("standard", "google/gemini-3.1-flash-lite-image"),
+        ("high", "google/gemini-3.1-flash-image"),
+        ("ultra", "google/gemini-3-pro-image"),
+    ):
+        resp = await client.post(
+            "/images/generate",
+            json={"prompt": "a red square", "quality": quality},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert captured[-1]["model"] == expected
 
 
 async def test_generate_image_rejects_over_quota_before_generating(

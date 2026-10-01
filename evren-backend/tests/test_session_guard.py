@@ -315,7 +315,7 @@ async def test_register_records_terms_acceptance(client: AsyncClient, app: FastA
     assert response.status_code == 201
     data = response.json()
     assert data["terms_accepted_at"] is not None
-    assert data["terms_version"] == "2026-09"
+    assert data["terms_version"] == "2026-10"
 
     async with app.state.database.session() as session:
         user = await session.scalar(select(User).where(User.email == "terms-reg@example.com"))

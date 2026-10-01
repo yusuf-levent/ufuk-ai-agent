@@ -77,6 +77,7 @@ async def create_tier_direct(app, **overrides) -> ModelTier:
             output_credits_per_1k_tokens=Decimal(str(body["output_credits_per_1k_tokens"])),
             max_output_tokens=body["max_output_tokens"],
             context_window=body["context_window"],
+            input_modalities=body.get("input_modalities", ["text"]),
             output_modalities=body.get("output_modalities", ["text"]),
             supports_tools=body.get("supports_tools", True),
             pricing_unit=body.get("pricing_unit", "token"),

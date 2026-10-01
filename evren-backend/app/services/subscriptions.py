@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -323,6 +324,6 @@ async def assign_plan(
             )
             if existing is None:
                 raise
-            return existing
+            return cast(Subscription, existing)
         await session.refresh(subscription)
         return subscription

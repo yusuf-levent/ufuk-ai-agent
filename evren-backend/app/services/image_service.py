@@ -3,11 +3,12 @@
 Design decisions (see docs/FIYATLANDIRMA-VE-MODEL-TASARIMI.md):
 
 * **Quality-weighted credits.** A generated image costs one "image credit" at
-  standard (1K) resolution, two at high (2K), four at ultra (4K). This mirrors
-  OpenRouter's megapixel-based `variant` pricing â€” a 4K image really does cost
-  us ~4x a 1K one â€” while keeping the user's mental model dead simple:
-  "1 photo = N credits, sharper = more". Because the multiplier tracks the real
-  cost curve, a high-res request can never be sold below cost.
+  standard (1K) resolution, two at high (2K), eight at ultra (4K). This mirrors
+  both OpenRouter's megapixel-based `variant` pricing â€” a 4K image really does
+  cost us ~4x a 1K one â€” and the per-quality model ladder (Lite -> Nano Banana 2
+  -> Nano Banana Pro, 1x/2x/8x), while keeping the user's mental model dead
+  simple: "1 photo = N credits, sharper = more". Because the multiplier tracks
+  the real cost curve, a high-res request can never be sold below cost.
 
 * **Separate quota, not chat credits.** Image pricing units vary across
   providers (image / megapixel / token), so folding them into the per-1k-token
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 
 from app.db import Database
 from app.errors import ApiError
@@ -38,12 +39,15 @@ from app.models.enums import ImageQuality
 from app.services.credits import quantize_credits
 from app.services.subscriptions import BillingPeriod
 
-#: Image credits charged per generation, by resolution tier. Mirrors the
-#: megapixel cost curve (1K -> 2K -> 4K roughly quadruples the pixels).
+#: Image credits charged per generation, by resolution tier. Mirrors BOTH the
+#: megapixel cost curve (1K -> 2K -> 4K roughly quadruples the pixels) AND the
+#: per-quality model premium (Lite 1x -> Nano Banana 2 2x -> Nano Banana Pro 8x
+#: on live OpenRouter rates); the larger factor wins so a high-res request can
+#: never be sold below cost.
 QUALITY_CREDIT_WEIGHT: dict[ImageQuality, int] = {
     ImageQuality.STANDARD: 1,
     ImageQuality.HIGH: 2,
-    ImageQuality.ULTRA: 4,
+    ImageQuality.ULTRA: 8,
 }
 
 #: Pixel dimensions per quality tier. Kept to a whitelist so a caller cannot
@@ -53,6 +57,27 @@ QUALITY_DIMENSIONS: dict[ImageQuality, tuple[int, int]] = {
     ImageQuality.HIGH: (2048, 2048),
     ImageQuality.ULTRA: (4096, 4096),
 }
+
+#: Server-pinned image models per quality tier (Lite -> Nano Banana 2 -> Nano
+#: Banana Pro). NEVER taken from the client — a user must not be able to name
+#: an expensive image model (e.g. openai/gpt-5.4-image-2 at $8/$15 per 1M) and
+#: blow the budget. Each quality step buys a stronger model AND more pixels,
+#: so the credit multiplier follows the real cost curve (see
+#: ``QUALITY_CREDIT_WEIGHT``).
+IMAGE_MODEL_BY_QUALITY: dict[ImageQuality, str] = {
+    ImageQuality.STANDARD: "google/gemini-3.1-flash-lite-image",
+    ImageQuality.HIGH: "google/gemini-3.1-flash-image",
+    ImageQuality.ULTRA: "google/gemini-3-pro-image",
+}
+
+#: Cheapest entry point (1K) — kept for callers that need a model without a
+#: quality context.
+DEFAULT_IMAGE_MODEL = IMAGE_MODEL_BY_QUALITY[ImageQuality.STANDARD]
+
+
+def image_model_for(quality: ImageQuality) -> str:
+    """Server-pinned upstream image model for a quality tier."""
+    return IMAGE_MODEL_BY_QUALITY[quality]
 
 #: Allowed output formats (PNG keeps quality, JPEG for size-conscious users).
 ALLOWED_FORMATS = frozenset({"png", "jpeg", "jpg"})
@@ -336,7 +361,7 @@ def decode_image_payload(data: str) -> bytes:
         ) from exc
 
 
-def _period_scope(period: BillingPeriod):
+def _period_scope(period: BillingPeriod) -> ColumnElement[bool]:
     """Rows charged against ``period``.
 
     Includes legacy rows (``period_key IS NULL``) that fall inside the window

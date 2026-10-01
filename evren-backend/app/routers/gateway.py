@@ -807,6 +807,7 @@ async def list_models(request: Request, user: User = Depends(get_current_user)) 
                     "upstream_model": tier.upstream_model_id,
                     "max_output_tokens": tier.max_output_tokens,
                     "context_window": tier.context_window,
+                    "input_modalities": list(tier.input_modalities or ["text"]),
                     "output_modalities": list(tier.output_modalities or ["text"]),
                     "supports_tools": bool(tier.supports_tools),
                     "pricing_unit": str(tier.pricing_unit),

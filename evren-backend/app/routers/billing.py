@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select, update
 
+from app.config import Settings
 from app.dependencies import get_current_user
 from app.errors import ApiError
 from app.models import Plan, User
@@ -25,6 +26,7 @@ from app.services import subscriptions as subscription_service
 from app.services.billing_providers import (
     BillingError,
     EventType,
+    PaymentProvider,
     WebhookVerificationError,
     get_provider,
 )
@@ -34,7 +36,9 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 
-def _resolve(settings):
+def _resolve(
+    settings: Settings,
+) -> tuple[PaymentProvider, str | None, str | None, str, str]:
     """Return (provider, api_key, webhook_secret, success_url, cancel_url)."""
     provider = get_provider(settings.billing_provider)
     api_key = (
@@ -51,8 +55,8 @@ def _resolve(settings):
             else None
         )
     )
-    success_url = settings.billing_success_url or settings.stripe_success_url
-    cancel_url = settings.billing_cancel_url or settings.stripe_cancel_url
+    success_url: str = settings.billing_success_url or settings.stripe_success_url
+    cancel_url: str = settings.billing_cancel_url or settings.stripe_cancel_url
     return provider, api_key, webhook_secret, success_url, cancel_url
 
 
@@ -176,7 +180,7 @@ async def billing_portal(
         provider, api_key, _, success_url, _ = _resolve(settings)
     except BillingError as exc:
         raise _billing_error(exc) from exc
-    if not provider.is_configured(api_key):
+    if api_key is None or not provider.is_configured(api_key):
         raise ApiError(
             status_code=501,
             message="Billing portal not configured",
@@ -250,7 +254,7 @@ async def billing_checkout(
             type="invalid_request_error",
             code="plan_not_purchasable",
         )
-    if not provider.is_configured(api_key):
+    if api_key is None or not provider.is_configured(api_key):
         raise ApiError(
             status_code=501,
             message="Billing is not configured",

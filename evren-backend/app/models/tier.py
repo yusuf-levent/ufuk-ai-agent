@@ -40,6 +40,12 @@ class ModelTier(Base, IdMixin, TimestampMixin):
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     context_window: Mapped[int] = mapped_column(Integer)
     # ---- Capability metadata (picker filtering + billing unit) ----
+    # What the model can INPUT (e.g. ["text"] or ["text","image"]). A vision
+    # model READS images; this is the flag the picker filters on for
+    # "görsel analiz" support.
+    input_modalities: Mapped[list[str]] = mapped_column(
+        ARRAY(String(20)), default=lambda: ["text"], server_default=text("'{text}'")
+    )
     # What the model can OUTPUT (e.g. ["text"] or ["text","image"]). Distinct
     # from input_modalities: a vision model READS images but does not generate
     # them. Used to route image-generation requests and to keep text-only tiers

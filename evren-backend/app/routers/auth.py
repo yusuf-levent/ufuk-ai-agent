@@ -29,7 +29,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 #: Revision of the terms accepted at signup. Bump when the account-sharing
 #: clause (or any other material term) changes so acceptance is auditable.
-TERMS_VERSION = "2026-09"
+TERMS_VERSION = "2026-10"
 
 REGISTER_IP_LIMIT = 10
 REGISTER_IP_WINDOW = 3600

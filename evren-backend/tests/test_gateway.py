@@ -545,6 +545,7 @@ async def test_models_listing_exposes_capability_metadata(
     assert response.status_code == 200
     fast = next(m for m in response.json()["data"] if m["id"] == "tooltip-test")
     details = fast["details"]
+    assert details["input_modalities"] == ["text"]
     assert details["output_modalities"] == ["text"]
     assert details["supports_tools"] is True
     assert details["pricing_unit"] == "token"

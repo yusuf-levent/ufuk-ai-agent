@@ -23,17 +23,12 @@ from app.services.image_service import (
     credit_weight,
     decode_image_payload,
     dimensions_for,
+    image_model_for,
     normalize_format,
     validate_prompt,
 )
 
 router = APIRouter(prefix="/images", tags=["images"])
-
-#: Server-pinned image model. NEVER taken from the client â€” a user must not be
-#: able to name an expensive image model (e.g. openai/gpt-5.4-image-2 at
-#: $8/$15 per 1M) and blow the budget. This is the cheapest vision-capable
-#: image model on OpenRouter (Gemini 3.1 Flash Lite Image, $0.25/$1.50 per 1M).
-DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image"
 
 
 def _image_service(request: Request) -> ImageService:
@@ -79,8 +74,10 @@ async def generate_images(
     )
 
     width, height = dimensions_for(quality)
+    # Server-pinned per quality: the client only picks quality, never the model.
+    upstream_model = image_model_for(quality)
     upstream_payload = {
-        "model": DEFAULT_IMAGE_MODEL,
+        "model": upstream_model,
         "prompt": prompt,
         "n": count,
         "size": f"{width}x{height}",
@@ -144,7 +141,7 @@ async def generate_images(
             user_id=user.id,
             plan=active.plan,
             period=active.period,
-            upstream_model_id=DEFAULT_IMAGE_MODEL,
+            upstream_model_id=upstream_model,
             prompt=prompt,
             quality=quality,
             image_format=image_format,
