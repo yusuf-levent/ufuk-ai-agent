@@ -1,16 +1,17 @@
 """Image generation: quota, credit weighting, storage, and API.
 
-Finansal güvenlik odaklı testler:
-- Çözünürlük çarpanı gerçek megapixel maliyet eğrisini takip etmeli (4K = 4x)
-- Kota aşımı ÜRETİMDEN ÖNCE reddedilmeli (upstream maliyeti olmasın)
-- Kullanıcı kendi görsellerine erişebilmeli, başkasınınkine ASLA
-- `model` parametresi asla kullanıcıdan gelmemeli (pahalı model enjeksiyonu)
+Finansal gÃ¼venlik odaklÄ± testler:
+- Ã‡Ã¶zÃ¼nÃ¼rlÃ¼k Ã§arpanÄ± gerÃ§ek megapixel maliyet eÄŸrisini takip etmeli (4K = 4x)
+- Kota aÅŸÄ±mÄ± ÃœRETÄ°MDEN Ã–NCE reddedilmeli (upstream maliyeti olmasÄ±n)
+- KullanÄ±cÄ± kendi gÃ¶rsellerine eriÅŸebilmeli, baÅŸkasÄ±nÄ±nkine ASLA
+- `model` parametresi asla kullanÄ±cÄ±dan gelmemeli (pahalÄ± model enjeksiyonu)
 """
 
 from __future__ import annotations
 
 import base64
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
@@ -25,10 +26,19 @@ from app.services.image_service import (
     normalize_format,
     validate_prompt,
 )
+from app.services.subscriptions import BillingPeriod
 from fastapi import FastAPI
 from httpx import AsyncClient
 from tests.helpers import register_and_login
 from tests.test_plans_admin import create_plan_direct, create_tier_direct
+
+# Fixed billing period for quota tests (the quota window is the billing
+# period, not the calendar month).
+PERIOD = BillingPeriod(
+    key="2026-10-01",
+    start=datetime(2026, 10, 1, tzinfo=UTC),
+    end=datetime(2026, 10, 31, tzinfo=UTC),
+)
 
 # 1x1 red PNG
 TINY_PNG = base64.b64encode(
@@ -99,7 +109,7 @@ async def install_image_upstream(app: FastAPI):
 
 
 def test_credit_weight_tracks_megapixel_curve() -> None:
-    """4K must cost 4x a 1K image — the multiplier mirrors the real megapixel
+    """4K must cost 4x a 1K image â€” the multiplier mirrors the real megapixel
     cost curve so a high-res request can never be sold below cost."""
     assert credit_weight(ImageQuality.STANDARD) == 1
     assert credit_weight(ImageQuality.HIGH) == 2
@@ -150,9 +160,9 @@ async def test_consume_quota_charges_by_quality(app: FastAPI, tmp_path):
     user = await create_user(app, "quota-charge@example.com")
 
     # 1 ultra (weight 4) + 1 standard (weight 1) = 5 credits
-    total1 = await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 1)
+    total1 = await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 1, PERIOD)
     assert total1 == 4
-    total2 = await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1)
+    total2 = await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1, PERIOD)
     assert total2 == 1
 
 
@@ -173,7 +183,7 @@ async def test_consume_quota_rejects_over_quota(app: FastAPI, tmp_path):
 
     # 2 ultra = 8 credits > 3 quota
     with pytest.raises(ApiError) as exc:
-        await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 2)
+        await service.consume_quota(user.id, plan, ImageQuality.ULTRA, 2, PERIOD)
     assert exc.value.code == "image_quota_exceeded"
 
 
@@ -192,7 +202,7 @@ async def test_consume_quota_rejects_disabled_plan(app: FastAPI, tmp_path):
     )
     user = await create_user(app, "quota-disabled@example.com")
     with pytest.raises(ApiError) as exc:
-        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1)
+        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 1, PERIOD)
     assert exc.value.code == "image_generation_disabled"
 
 
@@ -211,10 +221,10 @@ async def test_consume_quota_rejects_invalid_count(app: FastAPI, tmp_path):
     )
     user = await create_user(app, "quota-count@example.com")
     with pytest.raises(ApiError):
-        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 0)
+        await service.consume_quota(user.id, plan, ImageQuality.STANDARD, 0, PERIOD)
     with pytest.raises(ApiError):
         await service.consume_quota(
-            user.id, plan, ImageQuality.STANDARD, MAX_IMAGES_PER_REQUEST + 1
+            user.id, plan, ImageQuality.STANDARD, MAX_IMAGES_PER_REQUEST + 1, PERIOD
         )
 
 
@@ -354,7 +364,7 @@ async def test_generate_image_pins_model_server_side(
 async def test_generate_image_rejects_over_quota_before_generating(
     client: AsyncClient, app: FastAPI, image_env, install_image_upstream
 ):
-    """Quota must be checked BEFORE the upstream call — a rejected request must
+    """Quota must be checked BEFORE the upstream call â€” a rejected request must
     not cost us an upstream call."""
     headers, _user_id = image_env
     calls: list[int] = []

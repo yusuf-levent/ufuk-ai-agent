@@ -11,7 +11,8 @@ default is: store and log as little as possible.
 | `users` (email, argon2 password hash, role, flags, terms acceptance, soft security flag) | until account deletion | **no IP addresses, no device fingerprints** |
 | `refresh_tokens` (SHA-256 hash only) | max 30 days, revoked on rotation/logout/password change | raw tokens are never stored |
 | `email_tokens` (SHA-256 hash only) | 24 h (verify) / 1 h (reset) | |
-| `subscriptions` (plan, period, status) | until account deletion | |
+| `subscriptions` (plan, period, status, `billing_event_id`) | until account deletion | `billing_event_id` = provider webhook id (double-grant guard) |
+| `generated_images` (prompt, quality, `period_key`) | until account deletion | `period_key` scopes the image quota to the billing period |
 | `usage_events` (user id, request id, tier alias, upstream model id, token counts, credits, estimated flag, status, latency, real USD cost, cache/reasoning token buckets, selected model, parent request id, session id, finish reason) | billing records | **no prompts, no completions, no message bodies** |
 | `cost_daily_rollup` (day, user id, tier alias, selected model, request/token/credit/USD totals) | billing records | daily aggregate of `usage_events` for margin reporting; `user_id` anonymized on account deletion |
 | `plans`, `model_tiers` | configuration | |

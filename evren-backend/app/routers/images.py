@@ -29,7 +29,7 @@ from app.services.image_service import (
 
 router = APIRouter(prefix="/images", tags=["images"])
 
-#: Server-pinned image model. NEVER taken from the client — a user must not be
+#: Server-pinned image model. NEVER taken from the client â€” a user must not be
 #: able to name an expensive image model (e.g. openai/gpt-5.4-image-2 at
 #: $8/$15 per 1M) and blow the budget. This is the cheapest vision-capable
 #: image model on OpenRouter (Gemini 3.1 Flash Lite Image, $0.25/$1.50 per 1M).
@@ -54,8 +54,9 @@ async def generate_images(
     """
     database = request.app.state.database
     service = _image_service(request)
-
-    active = await subscription_service.get_active_subscription(database, user.id)
+    # Rolled lookup: free periods extend automatically; paid ones require a
+    # renewal payment (no payment, no service).
+    active = await subscription_service.get_active_or_rolled_subscription(database, user.id)
     if active is None:
         raise ApiError(
             status_code=403,
@@ -70,8 +71,12 @@ async def generate_images(
     quality = body.quality or ImageQuality.STANDARD
 
     # Charge quota BEFORE generating so a rejected request never costs us an
-    # upstream call. The weight reflects the real megapixel cost curve.
-    total_credits = await service.consume_quota(user.id, active.plan, quality, count)
+    # upstream call. The weight reflects the real megapixel cost curve. The
+    # quota window is the BILLING period (not the calendar month) and never
+    # rolls over.
+    total_credits = await service.consume_quota(
+        user.id, active.plan, quality, count, active.period
+    )
 
     width, height = dimensions_for(quality)
     upstream_payload = {
@@ -107,7 +112,7 @@ async def generate_images(
             code="image_generation_empty",
         )
 
-    # Real USD cost (for margin tracking) — captured before any stripping.
+    # Real USD cost (for margin tracking) â€” captured before any stripping.
     usage = data.get("usage") if isinstance(data, dict) else None
     upstream_cost_usd: Decimal | None = None
     if isinstance(usage, dict) and isinstance(usage.get("cost"), (int, float)):
@@ -138,6 +143,7 @@ async def generate_images(
         result = await service.store(
             user_id=user.id,
             plan=active.plan,
+            period=active.period,
             upstream_model_id=DEFAULT_IMAGE_MODEL,
             prompt=prompt,
             quality=quality,
@@ -157,7 +163,7 @@ async def generate_images(
             code="image_generation_empty",
         )
 
-    quota = await service.quota_for(user.id, active.plan)
+    quota = await service.quota_for(user.id, active.plan, active.period)
     return GenerateImageResponse(
         images=[
             {
@@ -183,7 +189,7 @@ async def get_image_quota(
 ) -> ImageQuotaResponse:
     database = request.app.state.database
     service = _image_service(request)
-    active = await subscription_service.get_active_subscription(database, user.id)
+    active = await subscription_service.get_active_or_rolled_subscription(database, user.id)
     if active is None:
         raise ApiError(
             status_code=403,
@@ -191,11 +197,12 @@ async def get_image_quota(
             type="permission_error",
             code="subscription_inactive",
         )
-    quota = await service.quota_for(user.id, active.plan)
+    quota = await service.quota_for(user.id, active.plan, active.period)
     return ImageQuotaResponse(
         quota=quota.quota,
         used=quota.used,
         remaining=quota.remaining,
+        reset_at=active.period_end,
         quality_weights={
             "standard": 1,
             "high": 2,
@@ -210,7 +217,7 @@ async def get_image(
     request: Request,
     user: User = Depends(get_current_user),
 ) -> Response:
-    """Serve a stored image. Ownership enforced — a user can only fetch their
+    """Serve a stored image. Ownership enforced â€” a user can only fetch their
     own images (prevents enumeration of other users' galleries)."""
     from sqlalchemy import select
 

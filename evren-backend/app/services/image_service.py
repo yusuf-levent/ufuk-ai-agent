@@ -4,8 +4,8 @@ Design decisions (see docs/FIYATLANDIRMA-VE-MODEL-TASARIMI.md):
 
 * **Quality-weighted credits.** A generated image costs one "image credit" at
   standard (1K) resolution, two at high (2K), four at ultra (4K). This mirrors
-  OpenRouter's megapixel-based `variant` pricing — a 4K image really does cost
-  us ~4x a 1K one — while keeping the user's mental model dead simple:
+  OpenRouter's megapixel-based `variant` pricing â€” a 4K image really does cost
+  us ~4x a 1K one â€” while keeping the user's mental model dead simple:
   "1 photo = N credits, sharper = more". Because the multiplier tracks the real
   cost curve, a high-res request can never be sold below cost.
 
@@ -17,7 +17,7 @@ Design decisions (see docs/FIYATLANDIRMA-VE-MODEL-TASARIMI.md):
 * **We store the binaries.** Keeping generated images on our own storage (not
   just relaying an upstream URL) gives us persistence when the upstream link
   expires, a gallery the user can return to, and a hard place to enforce
-  deletion on account removal. The upstream model id stays internal — the user
+  deletion on account removal. The upstream model id stays internal â€” the user
   never learns which model drew their picture, same as hidden sub-agent tiers.
 """
 
@@ -26,18 +26,17 @@ from __future__ import annotations
 import base64
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.db import Database
 from app.errors import ApiError
 from app.models import GeneratedImage, Plan
-from app.models.base import utcnow
 from app.models.enums import ImageQuality
 from app.services.credits import quantize_credits
+from app.services.subscriptions import BillingPeriod
 
 #: Image credits charged per generation, by resolution tier. Mirrors the
 #: megapixel cost curve (1K -> 2K -> 4K roughly quadruples the pixels).
@@ -58,7 +57,7 @@ QUALITY_DIMENSIONS: dict[ImageQuality, tuple[int, int]] = {
 #: Allowed output formats (PNG keeps quality, JPEG for size-conscious users).
 ALLOWED_FORMATS = frozenset({"png", "jpeg", "jpg"})
 
-#: Hard ceiling on prompt length — an unbounded prompt is both a cost and an
+#: Hard ceiling on prompt length â€” an unbounded prompt is both a cost and an
 #: abuse vector.
 MAX_PROMPT_LENGTH = 2000
 
@@ -134,17 +133,25 @@ class ImageService:
 
     # ---- Quota -----------------------------------------------------------
 
-    async def quota_for(self, user_id: uuid.UUID, plan: Plan) -> ImageQuota:
-        """Remaining image credits this billing period (UTC-month bucketed)."""
+    async def quota_for(
+        self, user_id: uuid.UUID, plan: Plan, period: BillingPeriod
+    ) -> ImageQuota:
+        """Remaining image credits for one BILLING period.
+
+        The quota resets with the billing period, not the calendar month: a
+        user who subscribes mid-month must not get two quotas in one paid
+        period. Leftover credits never roll over â€” the next period starts
+        empty. Rows stamped before period keys existed (``period_key IS NULL``)
+        still count when they fall inside the window, so legacy usage can never
+        hand out extra quota.
+        """
         if plan.monthly_image_quota is None:
             return ImageQuota(quota=None, used=0, remaining=None)
-        period_start, period_end = _current_month_window()
         async with self._db.session() as session:
             used = await session.scalar(
                 select(func.coalesce(func.sum(GeneratedImage.credits_charged), 0)).where(
                     GeneratedImage.user_id == user_id,
-                    GeneratedImage.created_at >= period_start,
-                    GeneratedImage.created_at < period_end,
+                    _period_scope(period),
                 )
             )
         used_int = int(Decimal(used or 0))
@@ -152,12 +159,17 @@ class ImageService:
         return ImageQuota(quota=plan.monthly_image_quota, used=used_int, remaining=remaining)
 
     async def consume_quota(
-        self, user_id: uuid.UUID, plan: Plan, quality: ImageQuality, count: int
+        self,
+        user_id: uuid.UUID,
+        plan: Plan,
+        quality: ImageQuality,
+        count: int,
+        period: BillingPeriod,
     ) -> int:
         """Charge `count` generations at `quality` against the monthly quota.
 
         Returns the total image credits consumed. Raises 402 when the quota
-        would be exceeded — the caller must not have generated anything yet.
+        would be exceeded â€” the caller must not have generated anything yet.
         """
         if plan.monthly_image_quota is None:
             raise ApiError(
@@ -175,14 +187,18 @@ class ImageService:
             )
         weight = credit_weight(quality)
         total = weight * count
-        quota = await self.quota_for(user_id, plan)
+        quota = await self.quota_for(user_id, plan, period)
         if quota.remaining is not None and total > quota.remaining:
             raise ApiError(
                 status_code=402,
-                message="Image quota exceeded for the current month",
+                message="Image quota exceeded for the current billing period",
                 type="insufficient_quota",
                 code="image_quota_exceeded",
-                extra={"remaining": str(quota.remaining), "requested": str(total)},
+                extra={
+                    "remaining": str(quota.remaining),
+                    "requested": str(total),
+                    "reset_at": period.end.isoformat(),
+                },
             )
         return total
 
@@ -199,17 +215,18 @@ class ImageService:
         image_bytes: bytes,
         credits_charged: Decimal,
         plan: Plan | None = None,
+        period: BillingPeriod | None = None,
         upstream_cost_usd: Decimal | None = None,
         latency_ms: int | None = None,
     ) -> StoredImage:
         """Persist one generated image (binary to disk, metadata to DB).
 
-        When ``plan`` is given, the quota is re-checked AFTER the upstream call
-        (optimistic concurrency): two parallel requests can both pass
-        ``consume_quota`` before either stores, so this second check catches the
-        race. ``max_concurrent_requests`` already bounds the window; this is
-        belt-and-braces. On quota breach the stored file is removed and 402
-        raised — we never silently exceed a paid quota.
+        When ``plan`` and ``period`` are given, the quota is re-checked AFTER
+        the upstream call (optimistic concurrency): two parallel requests can
+        both pass ``consume_quota`` before either stores, so this second check
+        catches the race. ``max_concurrent_requests`` already bounds the window;
+        this is belt-and-braces. On quota breach the stored file is removed and
+        402 raised â€” we never silently exceed a paid quota.
         """
         width, height = dimensions_for(quality)
         image_id = uuid.uuid4()
@@ -220,16 +237,19 @@ class ImageService:
         absolute.write_bytes(image_bytes)
 
         # Post-write quota check (race guard).
-        if plan is not None and plan.monthly_image_quota is not None:
-            quota = await self.quota_for(user_id, plan)
+        if plan is not None and period is not None and plan.monthly_image_quota is not None:
+            quota = await self.quota_for(user_id, plan, period)
             if quota.remaining is not None and credits_charged > quota.remaining:
                 absolute.unlink(missing_ok=True)
                 raise ApiError(
                     status_code=402,
-                    message="Image quota exceeded for the current month",
+                    message="Image quota exceeded for the current billing period",
                     type="insufficient_quota",
                     code="image_quota_exceeded",
-                    extra={"remaining": str(quota.remaining)},
+                    extra={
+                        "remaining": str(quota.remaining),
+                        "reset_at": period.end.isoformat(),
+                    },
                 )
 
         async with self._db.session() as session:
@@ -250,6 +270,7 @@ class ImageService:
                     else None
                 ),
                 latency_ms=latency_ms,
+                period_key=period.key if period is not None else None,
             )
             session.add(row)
             await session.commit()
@@ -315,11 +336,17 @@ def decode_image_payload(data: str) -> bytes:
         ) from exc
 
 
-def _current_month_window() -> tuple[datetime, datetime]:
-    now = utcnow()
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if start.month == 12:
-        end = start.replace(year=start.year + 1, month=1)
-    else:
-        end = start.replace(month=start.month + 1)
-    return start, end
+def _period_scope(period: BillingPeriod):
+    """Rows charged against ``period``.
+
+    Includes legacy rows (``period_key IS NULL``) that fall inside the window
+    so pre-migration usage can never hand out extra quota.
+    """
+    return or_(
+        GeneratedImage.period_key == period.key,
+        and_(
+            GeneratedImage.period_key.is_(None),
+            GeneratedImage.created_at >= period.start,
+            GeneratedImage.created_at < period.end,
+        ),
+    )

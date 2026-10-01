@@ -172,7 +172,7 @@ derived seconds, else 30 — and surfaces `error.resets_at` in the body.
 |---|---|---|
 | 400 | `registration_failed` / `invalid_token` / `upstream_bad_request` | client errors |
 | 401 | `invalid_credentials` / `invalid_api_key` / `token_expired` / `invalid_refresh_token` / `refresh_token_reused` | auth problems |
-| 402 | `quota_exceeded` | monthly credit limit exhausted (do NOT retry until period reset) |
+| 402 | `quota_exceeded` | credit limit exhausted (do NOT retry until period reset). Extra fields: `reset_at` (always), `upgrade_to: "plus"` (free plans only) |
 | 403 | `model_not_allowed` / `subscription_inactive` / `forbidden` | plan/permission problems |
 | 409 | `Plan '...' already exists` / `Tier '...' already exists` | admin create with duplicate name/alias |
 | 429 | `rate_limited` | RPM exceeded or upstream rate limit (`Retry-After` always set, `error.resets_at` when derivable) |
@@ -182,7 +182,8 @@ derived seconds, else 30 — and surfaces `error.resets_at` in the body.
 
 ## Behavioral notes for the agent
 
-- On `402 quota_exceeded`: stop retrying — the period limit is exhausted.
+- On `402 quota_exceeded`: stop retrying — the period limit is exhausted. `error.reset_at` tells when it resets; `error.upgrade_to` (free plans) names the plan to buy.
+- Quotas NEVER roll over: `/usage` reports `rolls_over: false` and `reset_at`. Each billing period starts with the plan's full limit.
 - On `429 rate_limited`: honor `Retry-After` (seconds), then retry.
 - On `502/503/504`: back off and retry; the gateway already retries connection
   errors once (never after streaming started) and protects itself with a

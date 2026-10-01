@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -26,4 +27,7 @@ class ImageQuotaResponse(BaseModel):
     quota: int | None
     used: int
     remaining: int | None
+    # When the quota resets (end of the billing period). Unused image credits
+    # never roll over.
+    reset_at: datetime | None = None
     quality_weights: dict[str, int]

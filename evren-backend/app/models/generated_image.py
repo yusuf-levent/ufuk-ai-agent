@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, IdMixin, str_enum, utcnow
@@ -16,7 +16,7 @@ class GeneratedImage(Base, IdMixin):
 
     Binary data lives on disk/object storage; this row tracks metadata for
     quota enforcement, cost attribution, and the user's gallery. The user never
-    sees the upstream model id — it stays internal like hidden sub-agent tiers.
+    sees the upstream model id â€” it stays internal like hidden sub-agent tiers.
     """
 
     __tablename__ = "generated_images"
@@ -43,6 +43,11 @@ class GeneratedImage(Base, IdMixin):
     )
     # Generation time in milliseconds.
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    # Billing period this image was charged against (ISO date of the period
+    # start). The image quota resets with the billing period, NOT the calendar
+    # month. NULL = legacy row counted by the old calendar-month window.
+    period_key: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )
+    __table_args__ = (Index("ix_generated_images_period_key", "period_key"),)

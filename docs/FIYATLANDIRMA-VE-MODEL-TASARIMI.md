@@ -330,11 +330,11 @@ ledger sapması → "kredim haksız eriyor" hissi.
 | 8 | Auto Router | ✅ **Bağlanacak** | `openrouter/auto` + `costTier: "low"` + `allowed_models` çiti |
 | 9 | Pareto Router | 📖 **OpenRouter'ın kendi özelliği** | `openrouter/pareto-code` + `minCodingScore` → sub-agent için ideal |
 | 10 | Fallback + alternatif sağlayıcı | ✅ **Çift katman** | OpenRouter `models` array + LiteLLM/Portkey yedek |
-| 11 | Free tier | ✅ **`:free` YOK** | Ucuz Çinli + 100 kredi/ay (maliyet $0.015/ay) |
+| 11 | Free tier | ✅ **:free YOK** + **UYGULANDI** | Ucuz Cinli + 100 kredi/ay. is_free_plan() (fiyata gore) + lazy period roll + 402'de `upgrade_to: plus` ipucu |
 | 12 | Vision pahalı | ✅ **Karışmayız** | Normal fiyat, tooltip'te not |
 | 13 | Tooltip tasarımı | ✅ **ⓘ hover kartı** | `price_note_tr` + `speed/quality_hint` backend'de hazır |
 | 14 | Burst/eşzamanlılık | ✅ **Kota hard-stop + makul paralel** | Komşu koruması; keyfi kısıt YOK |
-| 15 | Kota devri | ✅ **Devrolmaz** | Aylık sıfırla, sözleşmeye yaz |
+| 15 | Kota devri | ✅ **Devrolmaz** + **UYGULANDI** | Donem penceresi + ledger anahtari sifirlar; `rolls_over:false` API'de; free kendiliginden yuvarlanir, parali ASLA; webhook idempotent (`billing_event_id`) |
 
 ### 7.1 Madde 2 — Sub-agent 3 katmanlı kontrol
 

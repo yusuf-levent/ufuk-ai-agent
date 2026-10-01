@@ -140,7 +140,23 @@ async def billing_webhook(request: Request) -> JSONResponse:
                 content={"received": True, "ignored": True, "reason": "unknown_user"}
             )
 
-    await subscription_service.assign_plan(database, user.id, plan.id)
+    # Idempotent grant: the provider event id is stored on the subscription row
+    # (unique), so a redelivered webhook can never grant a second period. START
+    # opens a fresh period now (the customer just paid); RENEW anchors the new
+    # period at the end of the latest one so an early renewal never shortens a
+    # period already paid for.
+    grant_mode = (
+        subscription_service.GrantMode.RENEW
+        if event.type == EventType.SUBSCRIPTION_RENEWED
+        else subscription_service.GrantMode.START
+    )
+    await subscription_service.assign_plan(
+        database,
+        user.id,
+        plan.id,
+        mode=grant_mode,
+        billing_event_id=event.provider_event_id,
+    )
     logger.info(
         "billing_webhook_assigned",
         provider=provider.name,

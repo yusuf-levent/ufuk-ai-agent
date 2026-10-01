@@ -17,7 +17,9 @@ router = APIRouter(prefix="/usage", tags=["usage"])
 @router.get("")
 async def get_usage(request: Request, user: User = Depends(get_current_user)) -> dict[str, object]:
     database = request.app.state.database
-    active = await subscription_service.get_active_subscription(database, user.id)
+    # Rolled lookup: free periods extend automatically; paid ones require a
+    # renewal payment (no payment, no service).
+    active = await subscription_service.get_active_or_rolled_subscription(database, user.id)
     if active is None:
         raise ApiError(
             status_code=403,
@@ -36,10 +38,15 @@ async def get_usage(request: Request, user: User = Depends(get_current_user)) ->
     return {
         "period_start": active.period_start,
         "period_end": active.period_end,
+        "period_key": active.period_key,
         "plan_name": active.plan.name,
         "credit_limit": active.plan.monthly_credit_limit,
         "credits_used": used,
         "credits_remaining": remaining,
+        # Quota policy surfaced to the UI: unused credits never roll over â€”
+        # each billing period starts with the plan's full limit.
+        "rolls_over": False,
+        "reset_at": active.period_end,
         "requests_per_minute": active.plan.requests_per_minute,
         "per_tier": [TierUsageResponse(**asdict(item)) for item in usage],
     }

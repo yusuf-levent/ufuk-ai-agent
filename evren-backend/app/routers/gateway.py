@@ -195,7 +195,7 @@ def _client_key(request: Request) -> str | None:
     """Coarse client identity for soft anomaly detection.
 
     Combines the client IP with the user agent. Only a salted hash of this is
-    ever stored (see SessionGuard._client_hash) — the raw value lives for the
+    ever stored (see SessionGuard._client_hash) â€” the raw value lives for the
     duration of the request and is never persisted or logged.
     """
     ip = request.client.host if request.client else None
@@ -206,7 +206,7 @@ def _client_key(request: Request) -> str | None:
 
 
 async def _flag_user_for_review(database: Database, user_id: uuid.UUID, reason: str) -> None:
-    """Set the SOFT abuse flag. Never bans — a human reviews the account."""
+    """Set the SOFT abuse flag. Never bans â€” a human reviews the account."""
     from sqlalchemy import update
 
     from app.models import User
@@ -302,8 +302,8 @@ async def _finalize_event(
             )
 
     # Release the in-flight slot (account-sharing concurrency cap). This is the
-    # single terminal point for every request path — success, failure, timeout
-    # and client-disconnect all funnel through here — so the slot can never
+    # single terminal point for every request path â€” success, failure, timeout
+    # and client-disconnect all funnel through here â€” so the slot can never
     # leak. The flag is cleared to keep a double finalize from releasing twice.
     guard: SessionGuard | None = getattr(request.state, "session_guard", None)
     if guard is not None and getattr(request.state, "guard_slot_held", False):
@@ -338,6 +338,7 @@ async def _reserve(
             message="Single request exceeds the per-request credit budget",
             type="insufficient_quota",
             code="request_budget_exceeded",
+            extra=subscription_service.quota_hint(active.plan, active.period_end),
         )
 
     ledger = CreditLedger(redis)
@@ -351,12 +352,19 @@ async def _reserve(
         period_end=active.period_end,
         ttl_seconds=ttl,
     )
-    await ledger.reserve(
-        user_id=user.id,
-        period_key=active.period_key,
-        amount=amount,
-        limit=active.plan.monthly_credit_limit,
-    )
+    try:
+        await ledger.reserve(
+            user_id=user.id,
+            period_key=active.period_key,
+            amount=amount,
+            limit=active.plan.monthly_credit_limit,
+        )
+    except ApiError as exc:
+        # Enrich the 402 with when the quota resets (and, for free plans, the
+        # upgrade target) so the UI can render "Plus'a geç" without guessing.
+        hint = subscription_service.quota_hint(active.plan, active.period_end)
+        exc.extra = {**(exc.extra or {}), **hint}
+        raise
 
     # Rolling-window ceiling: the sub-agent cost kill-switch. A nested
     # sub-agent chain fires many calls in a burst; each is individually under
@@ -370,12 +378,14 @@ async def _reserve(
                 limit=window_cap,
                 window_seconds=active.plan.budget_window_seconds,
             )
-        except ApiError:
+        except ApiError as exc:
             # Roll the period ledger back so the rejected request leaves no
             # phantom reservation behind.
             await ledger.release(
                 user_id=user.id, period_key=active.period_key, amount=amount
             )
+            hint = subscription_service.quota_hint(active.plan, active.period_end)
+            exc.extra = {**(exc.extra or {}), **hint}
             raise
 
     request_id = uuid.uuid4()
@@ -433,7 +443,7 @@ async def chat_completions(
     database = request.app.state.database
     redis = request.app.state.redis
 
-    active = await subscription_service.get_active_subscription(database, user.id)
+    active = await subscription_service.get_active_or_rolled_subscription(database, user.id)
     if active is None:
         raise ApiError(
             status_code=403,
@@ -451,7 +461,7 @@ async def chat_completions(
             code="model_not_allowed",
         )
     # SECURITY: internal tiers serve hidden sub-agent / server-side work only.
-    # A user request naming one is rejected outright — otherwise a user could
+    # A user request naming one is rejected outright â€” otherwise a user could
     # pick the hidden (often pricier) model and bypass the curated picker.
     if tier.is_internal:
         raise ApiError(
@@ -461,7 +471,7 @@ async def chat_completions(
             code="model_not_allowed",
         )
 
-    # Global rate limit — protects the single OpenRouter key
+    # Global rate limit â€” protects the single OpenRouter key
     global_retry = await check_rate_limit(
         redis,
         key="global:rpm",
@@ -517,7 +527,7 @@ async def chat_completions(
     request.state.session_guard = guard
     request.state.guard_slot_held = slot_held
 
-    # Layer 3: soft anomaly detection. Advisory only — never blocks. A pattern
+    # Layer 3: soft anomaly detection. Advisory only â€” never blocks. A pattern
     # that looks like a shared account sets a review flag on the user row.
     flag_reason = await guard.observe(
         user_id=user.id, client_key=_client_key(request)
@@ -753,7 +763,7 @@ async def _record_breaker_outcome(breaker: CircuitBreaker, status_code: int) -> 
 @router.get("/models")
 async def list_models(request: Request, user: User = Depends(get_current_user)) -> dict[str, Any]:
     database = request.app.state.database
-    active = await subscription_service.get_active_subscription(database, user.id)
+    active = await subscription_service.get_active_or_rolled_subscription(database, user.id)
     if active is None:
         raise ApiError(
             status_code=403,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, IdMixin, TimestampMixin, str_enum
@@ -12,7 +12,12 @@ from app.models.enums import SubscriptionStatus
 
 class Subscription(Base, IdMixin, TimestampMixin):
     __tablename__ = "subscriptions"
-    __table_args__ = (Index("ix_subscriptions_user_status", "user_id", "status"),)
+    __table_args__ = (
+        Index("ix_subscriptions_user_status", "user_id", "status"),
+        # Double-grant protection: a redelivered billing webhook carries the
+        # same provider event id, so the unique index rejects the second grant.
+        UniqueConstraint("billing_event_id", name="uq_subscriptions_billing_event_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
@@ -21,3 +26,8 @@ class Subscription(Base, IdMixin, TimestampMixin):
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[SubscriptionStatus] = mapped_column(str_enum(SubscriptionStatus))
+    # Provider webhook event id that granted/renewed this subscription (NULL
+    # for admin-assigned or grandfathered rows). Unique when present.
+    billing_event_id: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, default=None
+    )
