@@ -409,7 +409,8 @@ DEFAULT_PLANS = {
         "budget_window_seconds": 300,
         "max_concurrent_requests": 2,
         "monthly_image_quota": 5,
-        "allowed_tier_aliases": ["qwen3.7-flash"],
+        # Light-tier models only (cost level 1). Mid/high tiers stay paid.
+        "allowed_tier_aliases": ["qwen3.7-flash", "deepseek-v4.1-flash"],
         "is_default": True,
         "price_usd": Decimal("0"),
         "provider_price_id": None,
