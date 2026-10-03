@@ -1,7 +1,20 @@
 """Seed default plans and model tiers.
 
-Idempotent: existing rows are kept unless --force is passed.
+DEFAULT_TIERS / DEFAULT_PLANS are the source of truth for the curated model
+picker, so every run reconciles the database against them:
+
+* a missing tier/plan is inserted, an existing one is overwritten with the
+  seeded values (hand edits made through the admin API are replaced — use the
+  admin API for permanent customisation, not the seed);
+* seed-owned tiers that DEFAULT_TIERS no longer defines are retired (disabled)
+  so a replaced model cannot linger in the picker;
+* plan `allowed_tier_aliases` entries that no longer resolve to a usable tier
+  are dropped, so a stale alias cannot hide a live model or surface a dead one.
+
 Upstream model ids can be overridden with env vars when the upstream changes.
+
+`--force` is accepted for backwards compatibility and no longer changes
+behaviour: reconciliation is unconditional.
 
 Usage (from the backend root):
     python scripts/seed.py [--force]
@@ -21,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import get_settings
 from app.db import Database
 from app.models import ModelTier, Plan
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 PROVIDER = os.environ.get("SEED_PROVIDER", "evren-llmapi")
 
@@ -359,6 +372,31 @@ ALL_TIERS = [
     "auto",
 ]
 
+# Aliases this script has seeded in the past but DEFAULT_TIERS no longer
+# defines. The picker is served straight from `model_tiers`, and nothing else
+# ever removes a row, so a replaced tier would stay visible forever unless the
+# seed retires it. Only these seed-owned aliases are ever retired — a tier an
+# operator added by hand or through the admin API is left untouched.
+LEGACY_TIER_ALIASES = ("fast", "balanced", "strong")
+
+
+def retired_tier_aliases(existing_aliases: set[str]) -> list[str]:
+    """Seed-managed aliases that DEFAULT_TIERS no longer defines.
+
+    These must be disabled on every seed run: leaving them enabled keeps a
+    model in the picker that the product no longer ships.
+    """
+    return sorted((existing_aliases & set(LEGACY_TIER_ALIASES)) - set(DEFAULT_TIERS))
+
+
+def prune_plan_aliases(aliases: list[str], live_aliases: set[str]) -> list[str]:
+    """Drop plan allow-list entries that no longer resolve to a usable tier.
+
+    A plan still pointing at a retired alias surfaces a dead entry in the
+    picker (or hides a live one behind a stale allow-list).
+    """
+    return [alias for alias in aliases if alias in live_aliases]
+
 DEFAULT_PLANS = {
     "free": {
         "monthly_credit_limit": Decimal("100"),
@@ -435,24 +473,40 @@ async def seed(*, force: bool) -> None:
                 if existing is None:
                     session.add(ModelTier(alias=alias, enabled=True, **spec))
                     print(f"tier  + {alias} -> {spec['upstream_model_id']}")
-                elif force:
+                else:
                     for field, value in spec.items():
                         setattr(existing, field, value)
-                    print(f"tier  ~ {alias} updated -> {spec['upstream_model_id']}")
-                else:
-                    print(f"tier  = {alias} exists (use --force to overwrite)")
+                    print(f"tier  ~ {alias} synced -> {spec['upstream_model_id']}")
 
+            # Retire seed-owned tiers that DEFAULT_TIERS no longer defines. The
+            # picker is served straight from `model_tiers`, so a replaced tier
+            # would otherwise stay visible forever. Hand-added tiers are left
+            # alone — only LEGACY_TIER_ALIASES are ever retired here.
+            existing_aliases = set(
+                (await session.execute(select(ModelTier.alias))).scalars().all()
+            )
+            for alias in retired_tier_aliases(existing_aliases):
+                await session.execute(
+                    update(ModelTier).where(ModelTier.alias == alias).values(enabled=False)
+                )
+                print(f"tier  - {alias} retired (disabled)")
+
+            live_aliases = set(DEFAULT_TIERS)
             for name, spec in DEFAULT_PLANS.items():
                 existing = await session.scalar(select(Plan).where(Plan.name == name))
                 if existing is None:
                     session.add(Plan(name=name, **spec))
                     print(f"plan  + {name} (limit {spec['monthly_credit_limit']})")
-                elif force:
-                    for field, value in spec.items():
-                        setattr(existing, field, value)
-                    print(f"plan  ~ {name} updated")
-                else:
-                    print(f"plan  = {name} exists (use --force to overwrite)")
+                    continue
+                for field, value in spec.items():
+                    setattr(existing, field, value)
+                print(f"plan  ~ {name} synced")
+                # Drop allow-list entries that no longer resolve to a usable
+                # tier: a stale alias hides a live model or surfaces a dead one.
+                pruned = prune_plan_aliases(list(existing.allowed_tier_aliases), live_aliases)
+                if pruned != list(existing.allowed_tier_aliases):
+                    existing.allowed_tier_aliases = pruned
+                    print(f"plan  ~ {name} aliases pruned -> {pruned}")
 
             await session.commit()
     finally:
@@ -462,7 +516,11 @@ async def seed(*, force: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--force", action="store_true", help="overwrite existing rows")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="deprecated: reconciliation is unconditional, the flag is kept for compatibility",
+    )
     args = parser.parse_args()
     asyncio.run(seed(force=args.force))
 

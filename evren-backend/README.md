@@ -150,15 +150,22 @@ Then point each tier's `upstream_model_id` at the model you want (these are
 pages, don't trust examples):
 
 ```powershell
-# seed-time overrides
-$env:SEED_PROVIDER = "openrouter"
-$env:SEED_FAST_MODEL = "openrouter/fast-placeholder"     # placeholder
-$env:SEED_BALANCED_MODEL = "openrouter/balanced-placeholder"
-$env:SEED_STRONG_MODEL = "openrouter/strong-placeholder"
-.venv\Scripts\python scripts\seed.py --force
+# seed-time overrides (upstream renames a model id)
+$env:SEED_PROVIDER = "evren-llmapi"
+$env:SEED_QWEN37_FLASH_MODEL = "qwen/qwen3.7-flash-new-id"   # example
+.venv\Scripts\python scripts\seed.py
 
 # or per-tier at runtime via the admin API (PATCH /admin/tiers/{id})
 ```
+
+`scripts/seed.py` reconciles the database against `DEFAULT_TIERS` /
+`DEFAULT_PLANS` on every run: it inserts what is missing, overwrites what
+exists with the seeded values, retires seed-owned tiers that the defaults no
+longer define (so a replaced model cannot linger in the picker) and prunes
+plan `allowed_tier_aliases` entries that no longer resolve to a usable tier.
+`--force` is deprecated and no longer changes behaviour. Permanent
+customisation belongs in the admin API, not in hand-edited rows — the next
+seed run overwrites them.
 
 Verified behavior against a mocked OpenRouter-style upstream
 (`tests/test_openrouter_upstream.py`): usage in the final stream chunk

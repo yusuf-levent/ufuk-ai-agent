@@ -22,6 +22,40 @@ def _load_seed_module():
     return module
 
 
+def test_seed_retires_replaced_legacy_tiers() -> None:
+    """A tier the seed used to ship but DEFAULT_TIERS no longer defines must be
+    retired on every seed run — otherwise it stays in the picker forever,
+    because nothing else ever removes a `model_tiers` row."""
+    seed = _load_seed_module()
+    assert set(seed.LEGACY_TIER_ALIASES).isdisjoint(seed.DEFAULT_TIERS), (
+        "a legacy alias is still defined in DEFAULT_TIERS — drop it from "
+        "LEGACY_TIER_ALIASES so it is no longer retired"
+    )
+    # A database still holding the pre-rename tiers retires exactly those.
+    assert seed.retired_tier_aliases({"fast", "balanced", "strong", "qwen3.7-flash"}) == [
+        "balanced",
+        "fast",
+        "strong",
+    ]
+    # A clean database retires nothing.
+    assert seed.retired_tier_aliases(set(seed.DEFAULT_TIERS)) == []
+    # Hand-added tiers are never touched by the seed.
+    assert seed.retired_tier_aliases({"my-custom-tier", "fast"}) == ["fast"]
+
+
+def test_seed_prunes_plan_aliases_that_no_longer_resolve() -> None:
+    """A plan allow-list entry pointing at a retired tier hides a live model or
+    surfaces a dead one; the seed repairs it on every run."""
+    seed = _load_seed_module()
+    live = set(seed.DEFAULT_TIERS)
+    assert seed.prune_plan_aliases(["fast", "qwen3.7-flash", "strong"], live) == [
+        "qwen3.7-flash"
+    ]
+    # A healthy allow-list is left byte-identical.
+    healthy = list(seed.ALL_TIERS)
+    assert seed.prune_plan_aliases(healthy, live) == healthy
+
+
 def test_seed_tier_ceilings_match_reasoning_model_needs() -> None:
     seed = _load_seed_module()
     assert seed.DEFAULT_TIERS["qwen3.7-flash"]["max_output_tokens"] == 8192
