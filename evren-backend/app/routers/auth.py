@@ -9,6 +9,9 @@ from app.models.enums import EmailTokenPurpose
 from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
+    OAuthLoginRequest,
+    OAuthProviderInfo,
+    OAuthProvidersResponse,
     RefreshRequest,
     RegisterRequest,
     ResetPasswordConfirmRequest,
@@ -18,7 +21,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.security import sha256_hex
-from app.services import auth_service
+from app.services import auth_service, oauth_service
 from app.services.rate_limiter import (
     check_rate_limit,
     register_failure,
@@ -115,6 +118,59 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
             code="invalid_credentials",
         )
 
+    access_token, refresh_token, expires_in = await auth_service.issue_tokens(
+        database, settings, user.id
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+    )
+
+
+@router.get("/oauth/providers")
+async def oauth_providers(request: Request) -> OAuthProvidersResponse:
+    """List the social sign-in providers the server has configured.
+
+    The desktop app renders one button per entry and opens `authorize_url` in
+    the system browser. Providers without a client id are simply absent.
+    """
+    settings = request.app.state.settings
+    providers = [
+        OAuthProviderInfo(
+            id=provider,  # type: ignore[arg-type]
+            label=oauth_service.PROVIDER_LABELS[provider],
+            authorize_url=oauth_service.build_authorize_url(settings, provider),
+        )
+        for provider in oauth_service.configured_providers(settings)
+    ]
+    return OAuthProvidersResponse(providers=providers, redirect_uri=settings.oauth_redirect_uri)
+
+
+@router.post("/oauth/login")
+async def oauth_login(body: OAuthLoginRequest, request: Request) -> TokenResponse:
+    """Exchange a provider authorization code for a Ufuk token pair."""
+    redis = request.app.state.redis
+    retry_after = await check_rate_limit(
+        redis,
+        key=f"rl:oauth:ip:{_client_ip(request)}",
+        limit=LOGIN_IP_LIMIT,
+        window_seconds=LOGIN_IP_WINDOW,
+    )
+    if retry_after is not None:
+        raise _rate_limited(retry_after)
+
+    database = request.app.state.database
+    settings = request.app.state.settings
+
+    identity = await oauth_service.resolve_identity(settings, body.provider, body.code)
+    user = await oauth_service.find_or_create_user(
+        database,
+        settings,
+        provider=body.provider,
+        identity=identity,
+        display_name_override=body.display_name,
+    )
     access_token, refresh_token, expires_in = await auth_service.issue_tokens(
         database, settings, user.id
     )

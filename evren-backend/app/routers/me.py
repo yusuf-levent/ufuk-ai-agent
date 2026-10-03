@@ -22,7 +22,7 @@ async def me(user: User = Depends(get_current_user)) -> UserResponse:
 async def delete_me(
     body: DeleteAccountRequest, request: Request, user: User = Depends(get_current_user)
 ) -> dict[str, bool]:
-    if not verify_password(body.password, user.password_hash):
+    if user.password_hash is None or not verify_password(body.password, user.password_hash):
         raise ApiError(
             status_code=401,
             message="Invalid email or password",

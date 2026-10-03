@@ -51,6 +51,24 @@ class Settings(BaseSettings):
     # against the working directory; absolute paths are used as-is.
     images_root: str = "./data/images"
 
+    # ---- Social sign-in (Google / Apple) ------------------------------------
+    # The client ids are public (the desktop app needs them to build the
+    # provider authorize URL); the secrets never leave the server. Leave a
+    # provider's client id unset to hide that button in the sign-in dialog.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    apple_client_id: str | None = None
+    # Apple accepts either a pre-built client secret (an ES256 JWT) or the
+    # three pieces it is minted from (Team ID, Key ID and the .p8 private key).
+    apple_client_secret: SecretStr | None = None
+    apple_team_id: str | None = None
+    apple_key_id: str | None = None
+    apple_private_key: SecretStr | None = None
+    # Where the provider redirects after consent. Must match what is registered
+    # in the Google / Apple consoles. `ufuk://` is the desktop app's own
+    # protocol handler (see `urlProtocol` in product.json).
+    oauth_redirect_uri: str = "ufuk://auth/callback"
+
     @field_validator("allowed_origins", "admin_emails", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: str | list[str]) -> list[str]:

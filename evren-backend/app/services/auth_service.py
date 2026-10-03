@@ -87,6 +87,9 @@ async def authenticate_user(db: Database, *, email: str, password: str) -> User 
     user = await get_user_by_email(db, email)
     if user is None:
         return None
+    # Federated (Google / Apple) accounts have no password to check.
+    if user.password_hash is None:
+        return None
     if not verify_password(password, user.password_hash):
         return None
     if not user.is_active:
@@ -182,7 +185,7 @@ async def revoke_all_user_tokens(db: Database, user_id: uuid.UUID) -> None:
 async def change_password(
     db: Database, user: User, *, current_password: str, new_password: str
 ) -> None:
-    if not verify_password(current_password, user.password_hash):
+    if user.password_hash is None or not verify_password(current_password, user.password_hash):
         raise _auth_error("Current password is incorrect", "invalid_credentials")
     async with db.session() as session:
         await session.execute(

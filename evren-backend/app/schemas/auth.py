@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -20,6 +21,32 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+
+class OAuthLoginRequest(BaseModel):
+    """Exchange a provider authorization code for a Ufuk session.
+
+    The desktop app hands the `code` it received on the `ufuk://auth/callback`
+    deep link; the server swaps it for the provider's id token, verifies it and
+    provisions (or links) the matching Ufuk account.
+    """
+
+    provider: Literal["google", "apple"]
+    code: str = Field(min_length=1, max_length=2048)
+    # Apple only: the user's name from the first consent, which Apple sends
+    # once and never again. Optional and cosmetic.
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+class OAuthProviderInfo(BaseModel):
+    id: Literal["google", "apple"]
+    label: str
+    authorize_url: str
+
+
+class OAuthProvidersResponse(BaseModel):
+    providers: list[OAuthProviderInfo]
+    redirect_uri: str
 
 
 class TokenResponse(BaseModel):

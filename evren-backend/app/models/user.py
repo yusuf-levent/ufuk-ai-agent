@@ -13,8 +13,16 @@ class User(Base, IdMixin, TimestampMixin):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Nullable: federated (Google / Apple) accounts are passwordless.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     display_name: Mapped[str | None] = mapped_column(String(100))
+    # ---- Federated identity (Google / Apple sign-in) ----
+    # Which provider owns this identity ("google" | "apple") and the
+    # provider-scoped subject (the `sub` claim). Both stay NULL for
+    # email/password accounts. The pair is unique so a provider identity can
+    # never be claimed twice.
+    auth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    provider_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     role: Mapped[UserRole] = mapped_column(
         str_enum(UserRole), default=UserRole.USER, server_default="user"
     )
